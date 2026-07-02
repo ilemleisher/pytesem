@@ -1,8 +1,12 @@
 import numpy as np
 import sys
 from sklearn.decomposition import PCA
-sys.path.append("/home/ilemleisher/em_project/dev/utils.py") 
+sys.path.append("/home/ilemleisher/em_project/dev/") 
 from utils import track_runtime
+
+# This module uses EMA baseline fitting to detect anomalies in the ASD data. It fits a linear baseline to the frequency 
+# and amplitude data and calculates a drift score based on the residuals. Chunks with drift scores above a defined threshold 
+# are flagged as anomalous.
 
 def get_drift_score(freqs, amplitude):
     """
@@ -42,8 +46,8 @@ def flag(freqs, X, s=3):
     - X: an array of ASD amplitude (in logspace) lists for the same data chunks
     - s: sigma threshold
     Returns:
-    - drift_flags: list of anomaly labels (0 = no anomaly, 1 = anomaly) 
-    - idx: list of corresponding indices for the anomaly labels
+    - flags: array of anomaly labels (0 = no anomaly, 1 = anomaly) 
+    - idx: array of corresponding indices for the anomaly labels
     - metadata:
         - baselines: list of baseline value lists for data chunks
         - residuals: list of residual value lists for data chunks
@@ -61,12 +65,12 @@ def flag(freqs, X, s=3):
         residuals.append(residual)
 
     thr = np.mean(drift_scores) + s * np.std(drift_scores)
-    drift_flags = (drift_scores > thr).astype(np.int32)
-    idx = np.where(drift_flags == 1)[0]
+    flags = (drift_scores > thr).astype(np.int32)
+    idx = np.where(flags == 1)[0]
 
     metadata = {}
     metadata['baselines'] = baselines
     metadata['residuals'] = residuals
     metadata['drift_scores'] = drift_scores
 
-    return drift_flags, idx, metadata
+    return flags, idx, metadata

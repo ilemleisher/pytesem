@@ -1,22 +1,24 @@
 import numpy as np
 import os, sys
 from sklearn.decomposition import PCA
-sys.path.append("/home/ilemleisher/em_project/dev/utils.py") 
+sys.path.append("/home/ilemleisher/em_project/dev/") 
 from utils import track_runtime
 
-# Reconstruction-error anomaly score
+# This module uses PCA to detect anomalies in the ASD data. It computes the PCA reconstruction-error per sample and 
+# flags chunks with errors above a defined threshold as anomalous.
+
 @track_runtime
 def flag(freqs, X, thr=0.0015):
     """
     This function computes the PCA reconstruction-error per sample and assigns flags based on a defined threshold.
 
     Inputs:
-    - freqs: list of frequency lists for data chunks
-    - X: noramlized input spectra with shape (N, F) (N: number of samples, F: number of frequency bins)
+    - freqs: an array of frequency lists for data chunks
+    - X: an array of ASD amplitude (in logspace) lists for the same data chunks
     - thr: the threshold above which to label an anomaly
     Returns:
-    - peak_flags: list of anomaly labels (0 = no anomaly, 1 = anomaly)
-    - idx: list of corresponding indices for the anomaly labels
+    - flags: array of anomaly labels (0 = no anomaly, 1 = anomaly)
+    - idx: array of corresponding indices for the anomaly labels
     - metadata:
         - pca_components: PCA components used for reconstruction
         - pca_explained_variance: PCA explained variance for each component
@@ -36,12 +38,12 @@ def flag(freqs, X, thr=0.0015):
     # Compute MSE
     err = np.mean((X - Xhat)**2, axis=1)
 
-    peak_flags = (err > thr).astype(np.int32)
-    idx = np.where(peak_flags == 1)[0]
+    flags = (err > thr).astype(np.int32)
+    idx = np.where(flags == 1)[0]
 
     residual_data = X - Xhat
     metadata = {}
     metadata['pca_components'] = pca.components_
     metadata['residual_data'] = residual_data
 
-    return peak_flags, idx, metadata
+    return flags, idx, metadata

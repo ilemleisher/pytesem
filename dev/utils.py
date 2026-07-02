@@ -24,7 +24,7 @@ def get_files(path='/data/lbl/run21/raw/continuous_I4_D20250102_T224744/'):
     Returns:
     - filenames: list of file names sorted by continuity
     """
-    files = glob.glob(os.path.join(path, "*cont_I4_D*_T*_F*"))
+    files = glob.glob(os.path.join(path, "*_I4_D*_T*_F*"))
 
     # Define pattern
     pat = re.compile(r"_I4_D(\d+)_T(\d+)_F(\d+)$")
