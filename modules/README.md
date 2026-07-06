@@ -1,6 +1,6 @@
 # Modules
 
-Modules are called by ```main.py``` to flag anomalies in the data. Each module contains a unique flagging method. All modules must contain a ```flag()``` function that has at least two parameters: 
+Modules are called by ```run.py``` to flag anomalies in the data. Each module contains a unique flagging method. All modules must contain a ```flag()``` function that has at least two parameters: 
 
 - ```X```: An array that contains ASD amplitudes in logspace for all data chunks. Has shape (N, F), where N is the number of data chunks and F is the number of frequency bins.
 

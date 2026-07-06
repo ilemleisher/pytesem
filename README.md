@@ -19,7 +19,7 @@ Modules are toggleable anomaly detection algorithms. Additional modules can be a
 
 - ```ema.py```: uses EMA baseline residuals to evaluate anomalies.
 
-The modules are activated via ```main.py```, which loads preprocessed data and runs the detection algorithms to create a binary anomaly flag array.
+The modules are activated via ```run.py```, which loads preprocessed data and runs the detection algorithms to create a binary anomaly flag array.
 
 ### Development Scripts
 
@@ -30,6 +30,8 @@ Scripts in ```dev``` directory are used for analysis/development of the workflow
 - ```anomaly.py```: loads ```.npz``` files saved from ```preprocess.py``` and uses PCA to calculate a reconstruction error and identify data chunks that contain anomalous peaks. Also calculates EMA baseline residual to identify data chunks that contian anomalous baseline drift. Plots the PCA reconstruction residual against the ASD for each anomalous chunk, and plots 5 data chunks centered on each chunk labeled with a baseline anomaly.
 
 - ```pca_tuning.py```: same structure as ```anomaly.py``` except there is parameter tuning to find optimal parameters for the PCA anomaly detection.
+
+- ```pca_components.py```: same structure as ```anomly.py``` except the principal components of the PCA model are plotted.
 
 - ```model.py```: TensorFlow 2D Convolutional Neural Network (CNN). Has three 2D convolution layers, a global pooling layer, and a linear output layer.
 

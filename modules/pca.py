@@ -21,8 +21,6 @@ def flag(freqs, X, thr=0.0015):
     - idx: array of corresponding indices for the anomaly labels
     - metadata:
         - pca_components: PCA components used for reconstruction
-        - pca_explained_variance: PCA explained variance for each component
-        - pca_explained_variance_ratio: PCA explained variance ratio for each component
         - residual_data: array of PCA error residuals for each anomalous chunk
     """
     # PCA

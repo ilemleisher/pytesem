@@ -197,7 +197,6 @@ def objective(trial, X_train_clean, X_val, y_val, band_idx):
         thr_combined=params["thr_combined"],
     )
 
-    # For rare labels, AP is often better objective than F1:
     ap = average_precision_score(y_val, scores["combined_score"])
     return ap
 
@@ -205,7 +204,7 @@ def objective(trial, X_train_clean, X_val, y_val, band_idx):
 
 # VALIDATION SET
 # Path to noisy data
-path = "/home/ilemleisher/data/artificial_noise/"
+path = "/home/ilemleisher/data/artificial_noise/val/"
 
 # Dataset
 target = 'I4_D20250102_T224816'
@@ -226,7 +225,8 @@ print(f"Found {len(X_val)} chunks")
 
 # TRAINING SET
 # Path to regular data
-path = "/home/ilemleisher/data/continuous_I4_D20250102_T224744/"
+#path = "/home/ilemleisher/data/continuous_I4_D20250102_T224744/"
+path = "/home/ilemleisher/data/artificial_noise/val/"
 
 # Dataset
 target = 'I4_D20250102_T225835'
@@ -243,7 +243,7 @@ asd_total = containers['asd_list']
 X_train_clean = np.log10(asd_total + 1e-12).astype(np.float32)
 print(f"Found {len(X_train_clean)} chunks")
 
-k0, k1 = 1,3000
+k0, k1 = 800,1200
 
 
 # # -------------------
@@ -302,7 +302,7 @@ k0, k1 = 1,3000
 # X, y are labeled development data (not final test)
 # band_idx = (k0, k1) for your kHz bins
 study = optuna.create_study(direction="maximize")
-study.optimize(lambda t: objective(t, X_train_clean, X_val, y_val, band_idx=(k0, k1)), n_trials=100)
+study.optimize(lambda t: objective(t, X_train_clean, X_val, y_val, band_idx=(k0, k1)), n_trials=50)
 
-print("Best F1:", study.best_value)
+print("Best AP:", study.best_value)
 print("Best params:", study.best_params)
