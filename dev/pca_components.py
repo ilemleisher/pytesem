@@ -75,9 +75,9 @@ for i in range(len(components)):
 print(f"Mode of 99th percentile anomalous components: {mode(np.concatenate(components_list)[0])}")
 
 fig, ax = plt.subplots(1,1,figsize=(12,8))
-plt.title(f"50 highest weighted PCA Components vs frequency bin for {target}")
-for i in range(len(components)):
-    ax.plot(freqs_total[i][:50], np.abs(components[i][:50]), alpha=0.5)
+plt.title(f"5 highest weighted PCA Components vs frequency bin for {target}")
+for i in range(len(components))[:5]:
+    ax.loglog(freqs_total[i], np.abs(components[i]), alpha=0.5)
 
 ax.set_xlabel("Frequency bin (Hz)")
 ax.set_ylabel("PCA component amplitude")

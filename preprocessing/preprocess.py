@@ -65,19 +65,28 @@ if __name__ == '__main__':
                 for data_chunk in filtered_chunks:
 
                     # Compute the ASD for each chunk
-                    freqs, asd = fft(data_chunk[1], sampling_rate)
+                    freqs, asd = fft(data_chunk[1])
 
                     freqs_list.append(freqs.astype(np.float32))
                     asd_list.append(asd.astype(np.float32))
+                    waveform_data_list.append(waveform_data.astype(np.float32))
+                    new_tdata_list.append(new_tdata.astype(np.float32))
+                    new_data_list.append(new_data.astype(np.float32))
+                    time_data_list.append(time_data.astype(np.float32))
 
         print(f"Filtered out {num_filtered}/{num_chunks} chunks in file {filename} ({num_filtered/num_chunks*100:.1f}% removal rate)")
 
         print(f'Saving...')
 
         # Stack data and save to .npz file
-        np.savez(
+        np.savez_compressed(
             f"{output_directory}/{filename[:-5]}.npz",
             freqs_list=np.stack(freqs_list),         # (N, F) or (F,)
             asd_list=np.stack(asd_list),             # (N, F)
+            # optional metadata
+            new_tdata_list=np.stack(new_tdata_list),
+            new_data_list=np.stack(new_data_list),
+            time_data_list=np.stack(time_data_list),
+            waveform_data_list=np.stack(waveform_data_list)
 )
         print(f'Saved.')

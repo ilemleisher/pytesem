@@ -136,7 +136,7 @@ path = "/data/lbl/run21/raw/continuous_I4_D20250102_T224744/"
 filenames = get_files(path)
 
 # Loop over each file in the folder
-for filename in filenames[8:16]:
+for filename in filenames[4:8]:
     filepath = path+filename
     print("Reading:", filename)
     num_filtered = 0
@@ -159,7 +159,7 @@ for filename in filenames[8:16]:
             time_data = np.arange(waveforms.shape[1]) / sampling_rate
             waveform_data = waveforms[channel_number]
 
-            if np.random.random() < 0.01:
+            if np.random.random() < 0.05:
 
                 waveform_data = spectral_peak_noise(time_data, 5, 100) + waveform_data
                 print("Added noise to", event)
@@ -210,7 +210,7 @@ for filename in filenames[8:16]:
     print(f'Saving...')
     # Stack data and save to .npz file
     np.savez(
-        f"/home/ilemleisher/data/artificial_noise/train/data_{filename[:-5]}.npz",
+        f"/home/ilemleisher/data/artificial_noise/val/data_{filename[:-5]}.npz",
         freqs_list=np.stack(freqs_list),         # (N, F) or (F,)
         asd_list=np.stack(asd_list),             # (N, F)
         # optional metadata

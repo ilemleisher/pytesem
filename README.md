@@ -1,6 +1,6 @@
 # Tiny AI Environmental Monitoring System for TESSERACT data stream
 
-This repository contains all codes being developed for a real-time anomalous noise detection system for the data stream from the HeRALD detector at Lawrence Berkeley National Laboratory, as part of the TESSERACT experiment.
+This repository contains all codes being developed for a real-time anomalous noise detection system for the data stream from the HeRALD detector at Lawrence Berkeley National Laboratory, as part of the TESSERACT experiment. The main branch is currently primarily used for science (testing algorithms, exploring parameter spaces, etc), whereas the package_layout branch is set up for users.
 
 ## Workflow
 

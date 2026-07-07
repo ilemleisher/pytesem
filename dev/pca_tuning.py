@@ -7,93 +7,98 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import average_precision_score, f1_score, precision_score, recall_score
 import optuna
 
-def pca_recon_flags_binlocal(
+# -----------------------------
+# Core fit/score functions
+# -----------------------------
+def fit_pca_detector(X_train_clean, params):
+    """
+    Fit PCA and calibration statistics using CLEAN training data only.
+    Returns a model dict used later for scoring any dataset.
+    """
+    pca = PCA(
+        n_components=params["n_components"],
+        svd_solver="full",
+        random_state=0
+    )
+    pca.fit(X_train_clean)
+
+    # Residuals on clean train for calibration
+    Ztr = pca.transform(X_train_clean)
+    Xtr_hat = pca.inverse_transform(Ztr)
+    rtr = X_train_clean - Xtr_hat
+
+    # Global error stats from clean train
+    gerr_tr = np.mean(rtr**2, axis=1)
+    g_mu = np.mean(gerr_tr)
+    g_sd = np.std(gerr_tr) + 1e-12
+
+    # Per-bin residual stats from clean train
+    r_mu = np.mean(rtr, axis=0, keepdims=True)
+    r_sd = np.std(rtr, axis=0, keepdims=True) + 1e-12
+
+    model = {
+        "pca": pca,
+        "g_mu": g_mu,
+        "g_sd": g_sd,
+        "r_mu": r_mu,
+        "r_sd": r_sd,
+    }
+    return model
+
+
+def score_pca_detector(
     X,
-    pca,
-    thr_global=0.0015,
-    thr_local=4.0,
-    mode="max_z",          # "max_z" | "topk_z_mean" | "band_max_z"
-    topk=5,
-    band_idx=None,         # tuple(start, stop) if mode="band_max_z"
-    alpha=0.5,             # for combined score
-    thr_combined=None      # optional threshold on combined score
+    model,
+    params,
 ):
     """
-    PCA anomaly flags with both global and bin-local residual scoring.
-
-    Inputs
-    ------
-    X : array (N, F)
-        Normalized spectra.
-    pca : fitted PCA model
-    thr_global : float
-        Threshold for global reconstruction MSE.
-    thr_local : float
-        Threshold for local z-residual score.
-    mode : str
-        Local score type:
-          - "max_z": max abs z-residual across bins
-          - "topk_z_mean": mean of top-k abs z-residual bins
-          - "band_max_z": max abs z-residual in a selected band
-    topk : int
-        Used when mode="topk_z_mean".
-    band_idx : (start, stop)
-        Frequency-bin slice for mode="band_max_z".
-    alpha : float in [0,1]
-        Weight for combined score = alpha*global_z + (1-alpha)*local_score.
-    thr_combined : float or None
-        If set, use combined score threshold too.
-
-    Returns
-    -------
-    flags : (N,) int32
-        1 if anomalous else 0.
-    idx : (M,) int
-        Indices of flagged samples.
-    residual : (N, F)
-        X - Xhat.
-    scores : dict
-        global_err, global_z, local_score, combined_score
+    Score and flag with fixed CLEAN calibration stats.
     """
-    # PCA reconstruction
+    pca = model["pca"]
+    g_mu, g_sd = model["g_mu"], model["g_sd"]
+    r_mu, r_sd = model["r_mu"], model["r_sd"]
+
+    mode = params["mode"]
+    topk = params.get("topk", 5)
+    band_idx = params.get("band_idx", None)
+    alpha = params.get("alpha", 0.5)
+    thr_global = params["thr_global"]
+    thr_local = params["thr_local"]
+    thr_combined = params.get("thr_combined", None)
+
+    # Reconstruction
     Z = pca.transform(X)
     Xhat = pca.inverse_transform(Z)
     residual = X - Xhat
 
-    # ----- Global score (MSE) -----
+    # Global scores (using clean calibration)
     global_err = np.mean(residual**2, axis=1)
-    g_mu, g_sd = np.mean(global_err), np.std(global_err) + 1e-12
     global_z = (global_err - g_mu) / g_sd
 
-    # ----- Bin-local score -----
-    # Per-bin robust-ish standardization of residuals
-    r_mu = np.mean(residual, axis=0, keepdims=True)
-    r_sd = np.std(residual, axis=0, keepdims=True) + 1e-12
+    # Local per-bin z residuals (using clean calibration)
     zres = (residual - r_mu) / r_sd
     absz = np.abs(zres)
 
     if mode == "max_z":
         local_score = np.max(absz, axis=1)
-
     elif mode == "topk_z_mean":
         k = min(topk, absz.shape[1])
         topk_vals = np.partition(absz, -k, axis=1)[:, -k:]
         local_score = np.mean(topk_vals, axis=1)
-
     elif mode == "band_max_z":
         if band_idx is None:
             raise ValueError("band_idx=(start, stop) required for mode='band_max_z'")
         s, e = band_idx
         local_score = np.max(absz[:, s:e], axis=1)
-
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
-    # ----- Flags -----
+    combined_score = alpha * global_z + (1 - alpha) * local_score
+
+    # Flags
     flags_global = global_err > thr_global
     flags_local = local_score > thr_local
 
-    combined_score = alpha * global_z + (1 - alpha) * local_score
     if thr_combined is None:
         flags = (flags_global | flags_local).astype(np.int32)
     else:
@@ -108,59 +113,47 @@ def pca_recon_flags_binlocal(
         "local_score": local_score,
         "combined_score": combined_score,
     }
-
-    print(f"Labeled chunks with indices {idx.tolist()} as anomalous (global + bin-local).")
     return flags, idx, residual, scores
 
 
+# -----------------------------
+# Evaluation utilities
+# -----------------------------
 def evaluate_params(X_train_clean, X_val, y_val, params):
-    # 1) fit PCA on clean train
-    pca = PCA(n_components=params["n_components"], svd_solver="full", random_state=0)
-    pca.fit(X_train_clean)
+    """
+    Fit on clean train, evaluate on validation.
+    """
+    model = fit_pca_detector(X_train_clean, params)
+    flags, idx, residual, scores = score_pca_detector(X_val, model, params)
 
-    # 2) score/flag
-    flags, idx, residual, scores = pca_recon_flags_binlocal(
-        X_val,
-        pca,
-        thr_global=params["thr_global"],
-        thr_local=params["thr_local"],
-        mode=params["mode"],
-        topk=params.get("topk", 5),
-        band_idx=params.get("band_idx", None),
-        alpha=params.get("alpha", 0.5),
-        thr_combined=params.get("thr_combined", None),
-    )
-
-    # 3) metrics
     f1 = f1_score(y_val, flags, zero_division=0)
     p = precision_score(y_val, flags, zero_division=0)
     r = recall_score(y_val, flags, zero_division=0)
+    ap = average_precision_score(y_val, scores["combined_score"])
 
-    return {"f1": f1, "precision": p, "recall": r, "n_flagged": int(flags.sum())}, pca
+    metrics = {
+        "f1": f1,
+        "precision": p,
+        "recall": r,
+        "ap_combined": ap,
+        "n_flagged": int(flags.sum()),
+    }
+    return metrics, model
 
 
-def run_detector(X_train, X_val, params):
-    pca = PCA(
-        n_components=params["n_components"],
-        svd_solver="full",
-        random_state=0
-    )
-    pca.fit(X_train)
-
-    flags, _, _, _ = pca_recon_flags_binlocal(
-        X_val, pca,
-        thr_global=params["thr_global"],
-        thr_local=params["thr_local"],
-        mode=params["mode"],
-        topk=params.get("topk", 5),
-        band_idx=params.get("band_idx", None),
-        alpha=params.get("alpha", 0.5),
-        thr_combined=params.get("thr_combined", None),
-    )
+def run_detector(X_train_clean, X_eval, params):
+    """
+    Train detector on clean train and return eval flags.
+    """
+    model = fit_pca_detector(X_train_clean, params)
+    flags, _, _, _ = score_pca_detector(X_eval, model, params)
     return flags
 
-def objective(trial, X_train_clean, X_val, y_val, band_idx):
 
+# -----------------------------
+# Optuna objective
+# -----------------------------
+def objective(trial, X_train_clean, X_val, y_val, band_idx):
     mode = trial.suggest_categorical("mode", ["max_z", "topk_z_mean", "band_max_z"])
 
     params = {
@@ -170,33 +163,24 @@ def objective(trial, X_train_clean, X_val, y_val, band_idx):
         "mode": mode,
         "topk": trial.suggest_int("topk", 3, 15),
         "alpha": trial.suggest_float("alpha", 0.0, 1.0),
-        "thr_combined": trial.suggest_float("thr_combined", 1.0, 8.0)}
+        "thr_combined": trial.suggest_float("thr_combined", 1.0, 8.0),
+    }
 
-    # only define band_idx when needed
     if mode == "band_max_z":
-        lo, hi = band_idx  # e.g. (k0, k1) allowed bin range
+        lo, hi = band_idx
         start = trial.suggest_int("band_start", lo, hi - 2)
-        stop  = trial.suggest_int("band_stop", start + 1, hi)
+        stop = trial.suggest_int("band_stop", start + 1, hi)
         params["band_idx"] = (start, stop)
     else:
         params["band_idx"] = None
 
-    # Fit PCA on CLEAN train only
-    pca = PCA(n_components=params["n_components"], svd_solver="full", random_state=0)
-    pca.fit(X_train_clean)
+    # Fit/calibrate on CLEAN only
+    model = fit_pca_detector(X_train_clean, params)
 
-    # Evaluate on labeled mixed validation set
-    flags, _, _, scores = pca_recon_flags_binlocal(
-        X_val, pca,
-        thr_global=params["thr_global"],
-        thr_local=params["thr_local"],
-        mode=params["mode"],
-        topk=params["topk"],
-        band_idx=params["band_idx"],
-        alpha=params["alpha"],
-        thr_combined=params["thr_combined"],
-    )
+    # Evaluate on labeled noisy/mixed validation
+    flags, _, _, scores = score_pca_detector(X_val, model, params)
 
+    # Optimize AP on continuous score
     ap = average_precision_score(y_val, scores["combined_score"])
     return ap
 
@@ -226,10 +210,10 @@ print(f"Found {len(X_val)} chunks")
 # TRAINING SET
 # Path to regular data
 #path = "/home/ilemleisher/data/continuous_I4_D20250102_T224744/"
-path = "/home/ilemleisher/data/artificial_noise/val/"
+path = "/home/ilemleisher/data/artificial_noise/train/"
 
 # Dataset
-target = 'I4_D20250102_T225835'
+#target = 'I4_D20250102_T225835'
 
 # Load continuous data from preprocessed files following naming format from preprocess.py
 filenames = filter_files(get_files(path),target)
@@ -243,7 +227,7 @@ asd_total = containers['asd_list']
 X_train_clean = np.log10(asd_total + 1e-12).astype(np.float32)
 print(f"Found {len(X_train_clean)} chunks")
 
-k0, k1 = 800,1200
+k0, k1 = 100,2000
 
 
 # # -------------------
@@ -302,7 +286,7 @@ k0, k1 = 800,1200
 # X, y are labeled development data (not final test)
 # band_idx = (k0, k1) for your kHz bins
 study = optuna.create_study(direction="maximize")
-study.optimize(lambda t: objective(t, X_train_clean, X_val, y_val, band_idx=(k0, k1)), n_trials=50)
+study.optimize(lambda t: objective(t, X_train_clean, X_val, y_val, band_idx=(k0, k1)), n_trials=10)
 
 print("Best AP:", study.best_value)
 print("Best params:", study.best_params)
