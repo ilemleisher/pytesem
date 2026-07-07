@@ -1,8 +1,10 @@
 # Tiny AI Environmental Monitoring System for TESSERACT data stream
 
-This repository contains all codes being developed for a real-time anomalous noise detection system for the data stream from the HeRALD detector at Lawrence Berkeley National Laboratory, as part of the TESSERACT experiment.
+This repository contains all codes being developed for a real-time anomalous noise detection system for the data stream from the HeRALD detector at Lawrence Berkeley National Laboratory, as part of the TESSERACT experiment. This branch uses a package layout that matches TESSERACT data taking software.
 
 ## Workflow
+
+```main.sh``` is the entry into the workflow. Modify the arguments in it as desired. This script runs both ```preprocess.py``` and ```anomaly.py```. 
 
 ### Preprocessing
 
@@ -19,29 +21,7 @@ Modules are toggleable anomaly detection algorithms. Additional modules can be a
 
 - ```ema.py```: uses EMA baseline residuals to evaluate anomalies.
 
-The modules are activated via ```run.py```, which loads preprocessed data and runs the detection algorithms to create a binary anomaly flag array.
-
-### Development Scripts
-
-Scripts in ```dev``` directory are used for analysis/development of the workflow. The only script in this directory that is required to run the complete workflow is ```utils.py```.
-
-- ```preprocess.py```: reads the raw HDF5 files, downsamples them, divides each data file into uniform chunks, filters out any chunks that contain signal events (represented by peaks in the waveform data), performs FFT on the chunks, then concatenates the chunks so that they represent time-continuous data (across several data files).
-
-- ```anomaly.py```: loads ```.npz``` files saved from ```preprocess.py``` and uses PCA to calculate a reconstruction error and identify data chunks that contain anomalous peaks. Also calculates EMA baseline residual to identify data chunks that contian anomalous baseline drift. Plots the PCA reconstruction residual against the ASD for each anomalous chunk, and plots 5 data chunks centered on each chunk labeled with a baseline anomaly.
-
-- ```pca_tuning.py```: same structure as ```anomaly.py``` except there is parameter tuning to find optimal parameters for the PCA anomaly detection.
-
-- ```pca_components.py```: same structure as ```anomly.py``` except the principal components of the PCA model are plotted.
-
-- ```model.py```: TensorFlow 2D Convolutional Neural Network (CNN). Has three 2D convolution layers, a global pooling layer, and a linear output layer.
-
-- ```train.py```: loads data files saved from ```preprocess.py``` and corresponding label files from ```pca.py``` to create data patches for the CNN. Trains the model using binary cross entropy loss, saves the best model, metrics, and loss/accuracy plots.
-
-- ```utils.py```: contains helper functions for loading files.
-
-- ```infer.py```: work in progress, eventually to be used with the trained CNN.
-
-- ```noise.py```: works the same as ```preprocess.py``` for loading in data and creating spectral chunks, however with the addition of artifical noise modes, with the goal being to implement specific noise to have a sufficiently large labeled dataset for supervised training of the CNN.
+The modules are activated via ```anomaly.py```, which loads preprocessed data and runs the detection algorithms to create a binary anomaly flag array.
 
 ## Required Packages
 

@@ -1,6 +1,5 @@
-import os, re, glob
+import os, re, glob, time
 import numpy as np
-import time
 from functools import wraps
 
 def track_runtime(func):
