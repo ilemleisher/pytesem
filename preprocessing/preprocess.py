@@ -8,7 +8,7 @@ if __name__ == '__main__':
 
     # Variables
     n_chunks = 2                        # Number of chunks to divide each data file into
-    post_downsample_length = 12000      # Target length of the raw data file for downsampling
+    post_downsample_length = 125000      # Target length of the raw data file for downsampling
     sampling_rate = 1.25e6              # Sampling rate of the raw data in Hz
     channel_number = 0                  # Channel number to read from the raw data file (0-indexed)
 
@@ -35,8 +35,7 @@ if __name__ == '__main__':
             print("Found", len(events), "events")
 
             # Data containers
-            freqs_list, asd_list, waveform_data_list = [], [], []
-            new_tdata_list, new_data_list, time_data_list = [], [], []
+            freqs_list, asd_list = [], []
 
             # Loop over each event in the file
             for event in events:
@@ -65,14 +64,10 @@ if __name__ == '__main__':
                 for data_chunk in filtered_chunks:
 
                     # Compute the ASD for each chunk
-                    freqs, asd = fft(data_chunk[1])
+                    freqs, asd = fft(data_chunk[1], post_downsample_length)
 
                     freqs_list.append(freqs.astype(np.float32))
                     asd_list.append(asd.astype(np.float32))
-                    waveform_data_list.append(waveform_data.astype(np.float32))
-                    new_tdata_list.append(new_tdata.astype(np.float32))
-                    new_data_list.append(new_data.astype(np.float32))
-                    time_data_list.append(time_data.astype(np.float32))
 
         print(f"Filtered out {num_filtered}/{num_chunks} chunks in file {filename} ({num_filtered/num_chunks*100:.1f}% removal rate)")
 
@@ -83,10 +78,5 @@ if __name__ == '__main__':
             f"{output_directory}/{filename[:-5]}.npz",
             freqs_list=np.stack(freqs_list),         # (N, F) or (F,)
             asd_list=np.stack(asd_list),             # (N, F)
-            # optional metadata
-            new_tdata_list=np.stack(new_tdata_list),
-            new_data_list=np.stack(new_data_list),
-            time_data_list=np.stack(time_data_list),
-            waveform_data_list=np.stack(waveform_data_list)
 )
         print(f'Saved.')

@@ -1,14 +1,15 @@
-import h5py
+import h5py, os
 import numpy as np
 from utils import get_files
+from scipy.ndimage import binary_dilation
 
 # Variables
-n_chunks = 2                        # Number of chunks to divide each data file into
-post_downsample_length = 12000      # Target length of the raw data file for downsampling
+n_chunks = 1                        # Number of chunks to divide each data file into
+target_len = 125000     # Target length of the raw data file for downsampling
 sampling_rate = 1.25e6              # Sampling rate of the raw data in Hz
 channel_number = 0                  # Channel number to read from the raw data file (0-indexed)
 
-def preprocess(tdata, data, target_len=12000, sigma_thresh=4, radius=1000):
+def preprocess(tdata, data, target_len=12000, sigma_thresh=4, radius=100):
     """
     This function reads in raw data file and first:
     - Marks all points above a defined height threshold
@@ -32,16 +33,21 @@ def preprocess(tdata, data, target_len=12000, sigma_thresh=4, radius=1000):
 
     med = np.median(raw_data)
     height = med + np.std(raw_data) * sigma_thresh
-
+    print("Height mask")
     # Initial keep mask
     keep = raw_data < height
-
+    print("Expand by radius")
     # Expand removals by radius
     if radius > 0:
         remove = ~keep
-        kernel = np.ones(2 * radius + 1, dtype=int)
-        expanded_remove = np.convolve(remove.astype(int), kernel, mode="same") > 0
-        keep = ~expanded_remove
+        kernel = np.ones(2 * radius + 1, dtype=bool)
+        out = binary_dilation(remove, structure=kernel)
+        keep = ~out
+
+        # remove = ~keep
+        # kernel = np.ones(2 * radius + 1, dtype=int)
+        # expanded_remove = np.convolve(remove.astype(int), kernel, mode="same") > 0
+        # keep = ~expanded_remove
 
     filtered_data = raw_data[keep]
     filtered_tdata = tdata[keep]
@@ -51,7 +57,7 @@ def preprocess(tdata, data, target_len=12000, sigma_thresh=4, radius=1000):
         raise ValueError("No data left after filtering.")
     if n < target_len:
         raise ValueError(f"Filtered length ({n}) is smaller than target_len ({target_len}).")
-
+    print("Downsample")
     # Downsample to exactly target_len points
     idx = np.linspace(0, n - 1, target_len, dtype=int)
     return filtered_tdata[idx], filtered_data[idx]
@@ -90,6 +96,7 @@ def chunk(tdata,data,n_chunks=n_chunks):
     """
     chunk_size = len(data) // n_chunks
     chunks = []
+    print("Dividing into chunks")
     for i in range(n_chunks):
         start = i * chunk_size
         end = start + chunk_size if i < n_chunks - 1 else len(data)
@@ -109,8 +116,7 @@ def fft(data, fs=sampling_rate):
     - freqs: frequency bins
     - asd: ASD values corresponding to the frequency bins
     """
-    n = len(data)
-
+    print("Computing ASD")
     # Remove DC offset
     x = data - np.mean(data)
     N = len(x)
@@ -164,13 +170,17 @@ def filter_chunks(chunks, sigma_thresh=4):
 if __name__ == '__main__':
 
     # Path to the folder containing the .hdf5 files
-    path = "/data/lbl/run21/raw/continuous_I4_D20250102_T224744/"
-    #path = '/data/lbl/run28/raw/continuous_I4_D20250902_T183451/'
+    base_path = "/data/lbl/run45/raw/"
+    folder = "continuous_I4_D20260706_T150239/"
+    output_path = '/home/ilemleisher/data/test_noise/'
+    output_directory = os.path.join(output_path, folder)
+    os.makedirs(output_directory, exist_ok=True)
 
+    path = os.path.join(base_path, folder)
     filenames = get_files(path)
     
     # Loop over each file in the folder
-    for filename in filenames[:1]:
+    for filename in filenames:
         filepath = path+filename
         print(f"Reading: {filename}")
         num_filtered = 0
@@ -193,7 +203,7 @@ if __name__ == '__main__':
                 waveform_data = waveforms[channel_number]
 
                 # Downsample the raw waveform data
-                new_tdata, new_data = downsample(time_data, waveform_data)
+                new_tdata, new_data = preprocess(time_data,waveform_data,target_len=target_len)
 
                 # Divide the raw data into chunks
                 chunks = chunk(new_tdata, new_data)
@@ -202,8 +212,9 @@ if __name__ == '__main__':
                 num_chunks += len(chunks)
 
                 # Discard any chunks that contains peaks above 4 sigma
-                filtered_chunks, num_filtered_chunks = filter_chunks(chunks, 4)
-
+                #filtered_chunks, num_filtered_chunks = filter_chunks(chunks, 4)
+                filtered_chunks = chunks
+                num_filtered_chunks = 0
                 # Count number of filtered chunks
                 num_filtered += num_filtered_chunks
 
@@ -211,7 +222,7 @@ if __name__ == '__main__':
                 for data_chunk in filtered_chunks:
 
                     # Compute the ASD for each chunk
-                    freqs, asd = fft(data_chunk[1])
+                    freqs, asd = fft(data_chunk[1], target_len)
 
                     freqs_list.append(freqs.astype(np.float32))
                     asd_list.append(asd.astype(np.float32))
@@ -225,8 +236,8 @@ if __name__ == '__main__':
         print(f'Saving...')
 
         # Stack data and save to .npz file
-        np.savez_compressed(
-            f"/home/ilemleisher/data/data_{filename[:-5]}.npz",
+        np.savez(
+            f"{output_directory}/{filename[:-5]}.npz",
             freqs_list=np.stack(freqs_list),         # (N, F) or (F,)
             asd_list=np.stack(asd_list),             # (N, F)
             # optional metadata

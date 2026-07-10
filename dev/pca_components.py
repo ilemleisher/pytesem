@@ -44,24 +44,24 @@ def flag(freqs, X, thr=0.0015):
 
     return flags, idx, metadata
 
-# Path to noisy data
-path = "/home/ilemleisher/data/artificial_noise/"
+# Path to control data
+path = "/home/ilemleisher/data/test_noise/continuous_I4_D20260706_T150239/"
 
 # Dataset
-target = 'I4_D20250102_T224816'
+target = 'I4_D20260706_T150246'
 
 # Load continuous data from preprocessed files following naming format from preprocess.py
 filenames = filter_files(get_files(path),target)
 print(f"Found {len(filenames)} files")
 
 # Stitch together continuous dataset
-containers = stitch_files(path, filenames, 'freqs_list','asd_list','labels')
+containers = stitch_files(path, filenames, 'freqs_list','asd_list')
 freqs_total = containers['freqs_list']
 asd_total = containers['asd_list']
-labels = containers['labels']
+# labels = containers['labels']
 
 X_val = np.log10(asd_total + 1e-12).astype(np.float32)
-y_val = labels.astype(np.int32)
+#y_val = labels.astype(np.int32)
 print(f"Found {len(X_val)} chunks")
 
 flags, idx, metadata = flag(freqs_total, X_val)
@@ -82,4 +82,4 @@ for i in range(len(components))[:5]:
 ax.set_xlabel("Frequency bin (Hz)")
 ax.set_ylabel("PCA component amplitude")
 
-fig.savefig(f"/home/ilemleisher/plots/artificial_noise/pca_components_{target}.png", dpi=300)
+fig.savefig(f"/home/ilemleisher/plots/test_noise/continuous_I4_D20260706_T150239/pca_components_{target}.png", dpi=300)
