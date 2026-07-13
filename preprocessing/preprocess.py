@@ -13,8 +13,8 @@ if __name__ == '__main__':
     channel_number = 0                  # Channel number to read from the raw data file (0-indexed)
 
     # Path to the folder containing the .hdf5 files
-    base_path = "/data/lbl/run21/raw/"
-    folder = "continuous_I4_D20250102_T224744/"
+    base_path = "/data/lbl/run45ilem/"
+    folder = "continuous_I4_D20260706_T172809/"
 
     output_path = '/home/ilemleisher/data/'
     output_directory = os.path.join(output_path, folder)

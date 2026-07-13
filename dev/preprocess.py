@@ -7,7 +7,7 @@ from scipy.ndimage import binary_dilation
 n_chunks = 1                        # Number of chunks to divide each data file into
 target_len = 125000     # Target length of the raw data file for downsampling
 sampling_rate = 1.25e6              # Sampling rate of the raw data in Hz
-channel_number = 0                  # Channel number to read from the raw data file (0-indexed)
+channel_number = 1                  # Channel number to read from the raw data file (0-indexed)
 
 def preprocess(tdata, data, target_len=12000, sigma_thresh=4, radius=100):
     """
@@ -170,12 +170,16 @@ def filter_chunks(chunks, sigma_thresh=4):
 if __name__ == '__main__':
 
     # Path to the folder containing the .hdf5 files
-    base_path = "/data/lbl/run45/raw/"
-    folder = "continuous_I4_D20260706_T150239/"
-    output_path = '/home/ilemleisher/data/test_noise/'
+    base_path = "/data/lbl/run45ilem/"
+    folder = "continuous_I4_D20260708_T072845/"
+    output_path = '/home/ilemleisher/data/overnight/'
     output_directory = os.path.join(output_path, folder)
     os.makedirs(output_directory, exist_ok=True)
-
+#continuous_I4_D20260707_T195754  continuous_I4_D20260708_T004524  continuous_I4_D20260708_T053747
+#continuous_I4_D20260707_T043850  continuous_I4_D20260707_T205322  continuous_I4_D20260708_T014545  continuous_I4_D20260708_T063316
+#continuous_I4_D20260707_T165628  continuous_I4_D20260707_T214851  continuous_I4_D20260708_T024606  continuous_I4_D20260708_T072845
+#continuous_I4_D20260707_T175649  continuous_I4_D20260707_T224934  continuous_I4_D20260708_T034649  continuous_I4_D20260710_T154539
+#continuous_I4_D20260707_T185711  continuous_I4_D20260707_T234955  continuous_I4_D20260708_T044218
     path = os.path.join(base_path, folder)
     filenames = get_files(path)
     
@@ -187,6 +191,7 @@ if __name__ == '__main__':
         num_chunks = 0
 
         with h5py.File(filepath, "r") as data:
+
             events = data['adc1'].keys()
             print("Found", len(events), "events")
 
@@ -204,6 +209,7 @@ if __name__ == '__main__':
 
                 # Downsample the raw waveform data
                 new_tdata, new_data = preprocess(time_data,waveform_data,target_len=target_len)
+                #new_tdata, new_data = downsample(time_data, waveform_data, target_len=target_len)
 
                 # Divide the raw data into chunks
                 chunks = chunk(new_tdata, new_data)
@@ -216,7 +222,7 @@ if __name__ == '__main__':
                 filtered_chunks = chunks
                 num_filtered_chunks = 0
                 # Count number of filtered chunks
-                num_filtered += num_filtered_chunks
+                #num_filtered += num_filtered_chunks
 
                 # Loop over each remaining chunk
                 for data_chunk in filtered_chunks:

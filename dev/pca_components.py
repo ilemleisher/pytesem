@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.decomposition import PCA
 from statistics import mode
 
-def flag(freqs, X, thr=0.0015):
+def flag(freqs, X, thr=0.002):
     """
     This function computes the PCA reconstruction-error per sample and assigns flags based on a defined threshold.
 

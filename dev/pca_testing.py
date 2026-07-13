@@ -4,7 +4,7 @@ from utils import get_files, filter_files,  stitch_files
 import numpy as np
 from sklearn.decomposition import PCA
 
-def flag(X_train, X_val, thr=0.0015):
+def flag(X_train, X_val, thr=0.15):
 
     # PCA
     pca = PCA(n_components=0.99, svd_solver="full")  # keep 99% variance
@@ -32,10 +32,10 @@ def flag(X_train, X_val, thr=0.0015):
 
 # VALIDATION SET
 # Path to noisy data
-path = "/home/ilemleisher/data/test_noise/continuous_I4_D20260706_T154113/"
+path = "/home/ilemleisher/data/overnight/continuous_I4_D20260708_T024606/"
 
 # Dataset
-target = 'I4_D20260706_T154120'
+target = 'I4_D20260708_T024635'
 
 print("LOADING VALIDATION SET")
 # Load continuous data from preprocessed files following naming format from preprocess.py
@@ -74,7 +74,7 @@ print("FLAGGING ANOMALIES")
 flags, idx, metadata = flag(X_train_clean, X_val)
 
 print(f"Anomalous chunks: {np.where(flags == 1)[0]}")
-print(f"Accuracy: {np.sum(flags)/len(flags)*100}%")
+#print(f"Accuracy: {np.sum(flags)/len(flags)*100}%")
 
 # print(np.where(flags & labels == 1))
 
