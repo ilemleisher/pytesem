@@ -1,5 +1,5 @@
 import numpy as np
-import sys, importlib, argparse
+import importlib, argparse
 from dev.utils import get_files, filter_files, stitch_files
 
 def parse_args():

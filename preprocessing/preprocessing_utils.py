@@ -1,7 +1,6 @@
 import numpy as np
-import sys
-sys.path.append("/home/ilemleisher/em_project/dev/") 
-from utils import track_runtime
+from dev.utils import track_runtime
+from scipy.ndimage import binary_dilation
 
 def downsample(tdata, data, target_len):
     """
@@ -22,6 +21,55 @@ def downsample(tdata, data, target_len):
     # Downsample to exactly target_len points
     idx = np.linspace(0, len(tdata) - 1, target_len, dtype=int)
     return tdata[idx], raw_data[idx]
+
+def preprocess(tdata, data, target_len, sigma_thresh, radius):
+    """
+    This function reads in raw data file and:
+    - Marks all points above a defined height threshold
+    - Marks all points within a defined radius around each marked point from the previous step
+    - Removes all marked points
+    - Downsamples the remaining points to a defined target length
+
+    Parameters:
+    - tdata: time data array
+    - data: raw data array
+    - target_len: desired length of the output data array
+    - sigma_thresh: number of standard deviations above the median to define the height threshold
+    - radius: number of points around each marked point to also mark for removal
+
+    Returns:
+    - filtered_tdata: time data array after filtering and downsampling
+    - filtered_data: raw data array after filtering and downsampling
+    """
+    raw_data = np.asarray(data).copy()
+    tdata = np.asarray(tdata)
+
+    med = np.median(raw_data)
+    height = med + np.std(raw_data) * sigma_thresh
+
+    # Initial keep mask
+    keep = raw_data < height
+
+    # Expand removals by radius
+    if radius > 0:
+        remove = ~keep
+        kernel = np.ones(2 * radius + 1, dtype=bool)
+        out = binary_dilation(remove, structure=kernel)
+        keep = ~out
+
+    filtered_data = raw_data[keep]
+    filtered_tdata = tdata[keep]
+
+    n = len(filtered_data)
+    if n == 0:
+        raise ValueError("No data left after filtering.")
+    if n < target_len:
+        raise ValueError(f"Filtered length ({n}) is smaller than target_len ({target_len}).")
+
+    # Downsample to target_len points
+    filtered_tdata, filtered_data = downsample(filtered_tdata, filtered_data, target_len)
+    
+    return filtered_tdata, filtered_data
 
 def chunk(tdata,data,n_chunks):
     """  

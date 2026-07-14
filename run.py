@@ -1,7 +1,6 @@
 import numpy as np
 import sys, importlib
-sys.path.append("/home/ilemleisher/em_project/dev/") 
-from utils import get_files, filter_files, stitch_files
+from dev.utils import get_files, filter_files, stitch_files
 
 # Get path to modules
 sys.path.append("/home/ilemleisher/em_project/modules")
