@@ -188,20 +188,20 @@ def objective(trial, X_train_clean, X_val, y_val, band_idx):
 
 # VALIDATION SET
 # Path to noisy data
-path = "/home/ilemleisher/data/artificial_noise/val/"
+path = "/home/ilemleisher/data/test_noise/continuous_I4_D20260710_T154539/"
 
 # Dataset
-target = 'I4_D20250102_T224816'
+target = 'I4_D20260710_T154547'
 
 # Load continuous data from preprocessed files following naming format from preprocess.py
 filenames = filter_files(get_files(path),target)
 print(f"Found {len(filenames)} files")
 
 # Stitch together continuous dataset
-containers = stitch_files(path, filenames, 'freqs_list','asd_list','labels')
+containers = stitch_files(path, filenames, 'freqs_list','asd_list','labels_list')
 freqs_total = containers['freqs_list']
 asd_total = containers['asd_list']
-labels = containers['labels']
+labels = np.ones(120)
 
 X_val = np.log10(asd_total + 1e-12).astype(np.float32)
 y_val = labels.astype(np.int32)
@@ -209,11 +209,10 @@ print(f"Found {len(X_val)} chunks")
 
 # TRAINING SET
 # Path to regular data
-#path = "/home/ilemleisher/data/continuous_I4_D20250102_T224744/"
-path = "/home/ilemleisher/data/artificial_noise/train/"
+path = "/home/ilemleisher/data/test_noise/continuous_I4_D20260706_T150239/"
 
 # Dataset
-#target = 'I4_D20250102_T225835'
+target = 'I4_D20260706_T150246'
 
 # Load continuous data from preprocessed files following naming format from preprocess.py
 filenames = filter_files(get_files(path),target)
@@ -286,7 +285,7 @@ k0, k1 = 100,2000
 # X, y are labeled development data (not final test)
 # band_idx = (k0, k1) for your kHz bins
 study = optuna.create_study(direction="maximize")
-study.optimize(lambda t: objective(t, X_train_clean, X_val, y_val, band_idx=(k0, k1)), n_trials=10)
+study.optimize(lambda t: objective(t, X_train_clean, X_val, y_val, band_idx=(k0, k1)), n_trials=50)
 
 print("Best AP:", study.best_value)
 print("Best params:", study.best_params)

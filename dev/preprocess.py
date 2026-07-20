@@ -5,11 +5,11 @@ from scipy.ndimage import binary_dilation
 
 # Variables
 n_chunks = 1                        # Number of chunks to divide each data file into
-target_len = 125000     # Target length of the raw data file for downsampling
+downsample_factor = 10              # Downsample reduction factor
 sampling_rate = 1.25e6              # Sampling rate of the raw data in Hz
 channel_number = 1                  # Channel number to read from the raw data file (0-indexed)
 
-def preprocess(tdata, data, target_len=12000, sigma_thresh=4, radius=100):
+def preprocess(tdata, data, target_len, sigma_thresh=4, radius=100):
     """
     This function reads in raw data file and first:
     - Marks all points above a defined height threshold
@@ -122,16 +122,17 @@ def fft(data, fs=sampling_rate):
     N = len(x)
 
     # Use Hann window
-    w = np.hanning(N)
-    xw = x * w
+    #w = np.hanning(N)
+    #xw = x * w
+    xw = x
 
     # Perform FFT
     Y = np.fft.rfft(xw)
     freqs = np.fft.rfftfreq(N, d=1/fs)
 
     # Window power normalization
-    U = (1/N) * np.sum(w**2)
-
+    # U = (1/N) * np.sum(w**2)
+    U = 1
     # Compute one-sided PSD and convert to ASD
     psd = (1 / (fs * N * U)) * np.abs(Y)**2
     if N % 2 == 0:
@@ -170,16 +171,12 @@ def filter_chunks(chunks, sigma_thresh=4):
 if __name__ == '__main__':
 
     # Path to the folder containing the .hdf5 files
-    base_path = "/data/lbl/run45ilem/"
-    folder = "continuous_I4_D20260708_T072845/"
-    output_path = '/home/ilemleisher/data/overnight/'
+    base_path = "/data/lbl/run45/raw/"
+    folder = "continuous_I4_D20260707_T160503/"
+    output_path = '/home/ilemleisher/data/test_noise/'
     output_directory = os.path.join(output_path, folder)
     os.makedirs(output_directory, exist_ok=True)
-#continuous_I4_D20260707_T195754  continuous_I4_D20260708_T004524  continuous_I4_D20260708_T053747
-#continuous_I4_D20260707_T043850  continuous_I4_D20260707_T205322  continuous_I4_D20260708_T014545  continuous_I4_D20260708_T063316
-#continuous_I4_D20260707_T165628  continuous_I4_D20260707_T214851  continuous_I4_D20260708_T024606  continuous_I4_D20260708_T072845
-#continuous_I4_D20260707_T175649  continuous_I4_D20260707_T224934  continuous_I4_D20260708_T034649  continuous_I4_D20260710_T154539
-#continuous_I4_D20260707_T185711  continuous_I4_D20260707_T234955  continuous_I4_D20260708_T044218
+
     path = os.path.join(base_path, folder)
     filenames = get_files(path)
     
@@ -198,14 +195,23 @@ if __name__ == '__main__':
             # Data containers
             freqs_list, asd_list, waveform_data_list = [], [], []
             new_tdata_list, new_data_list, time_data_list = [], [], []
+            labels, og_freqs_list, og_asd_list = [], [], []
 
             # Loop over each event in the file
             for event in events:
 
                 # Read ADC1 output from the specified channel
                 waveforms = np.array(data["adc1"][str(event)])
-                time_data = np.arange(waveforms.shape[1]) / sampling_rate
+                n_samples = waveforms.shape[1]
+                time_data = np.arange(n_samples) / sampling_rate
                 waveform_data = waveforms[channel_number]
+
+                # Calculations
+                target_len = n_samples // downsample_factor
+                duration = n_samples // sampling_rate
+                fft_fs = target_len // duration
+
+                og_freqs, og_asd = fft(waveform_data, sampling_rate)
 
                 # Downsample the raw waveform data
                 new_tdata, new_data = preprocess(time_data,waveform_data,target_len=target_len)
@@ -228,7 +234,7 @@ if __name__ == '__main__':
                 for data_chunk in filtered_chunks:
 
                     # Compute the ASD for each chunk
-                    freqs, asd = fft(data_chunk[1], target_len)
+                    freqs, asd = fft(data_chunk[1], fft_fs)
 
                     freqs_list.append(freqs.astype(np.float32))
                     asd_list.append(asd.astype(np.float32))
@@ -236,6 +242,8 @@ if __name__ == '__main__':
                     new_tdata_list.append(new_tdata.astype(np.float32))
                     new_data_list.append(new_data.astype(np.float32))
                     time_data_list.append(time_data.astype(np.float32))
+                    og_freqs_list.append(og_freqs.astype(np.float32))
+                    og_asd_list.append(og_asd.astype(np.float32))
 
         print(f"Filtered out {num_filtered}/{num_chunks} chunks in file {filename} ({num_filtered/num_chunks*100:.1f}% removal rate)")
 
@@ -250,6 +258,8 @@ if __name__ == '__main__':
             new_tdata_list=np.stack(new_tdata_list),
             new_data_list=np.stack(new_data_list),
             time_data_list=np.stack(time_data_list),
-            waveform_data_list=np.stack(waveform_data_list)
+            waveform_data_list=np.stack(waveform_data_list),
+            og_freqs_list=np.stack(og_freqs_list),
+            og_asd_list=np.stack(og_asd_list)
 )
         print(f'Saved.')

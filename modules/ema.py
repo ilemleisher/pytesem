@@ -1,8 +1,5 @@
 import numpy as np
-import sys
-from sklearn.decomposition import PCA
-sys.path.append("/home/ilemleisher/em_project/dev/") 
-from utils import track_runtime
+from dev.utils import track_runtime
 
 # This module uses EMA baseline fitting to detect anomalies in the ASD data. It fits a linear baseline to the frequency 
 # and amplitude data and calculates a drift score based on the residuals. Chunks with drift scores above a defined threshold 

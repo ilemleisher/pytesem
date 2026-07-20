@@ -4,7 +4,7 @@ from utils import get_files, filter_files,  stitch_files
 import numpy as np
 from sklearn.decomposition import PCA
 
-def flag(X_train, X_val, thr=0.15):
+def flag(X_train, X_val, thr=0.0015):
 
     # PCA
     pca = PCA(n_components=0.99, svd_solver="full")  # keep 99% variance
@@ -32,10 +32,10 @@ def flag(X_train, X_val, thr=0.15):
 
 # VALIDATION SET
 # Path to noisy data
-path = "/home/ilemleisher/data/overnight/continuous_I4_D20260708_T024606/"
+path = "/home/ilemleisher/data/test_noise/continuous_I4_D20260707_T160503/"
 
 # Dataset
-target = 'I4_D20260708_T024635'
+target = 'I4_D20260707_T160511'
 
 print("LOADING VALIDATION SET")
 # Load continuous data from preprocessed files following naming format from preprocess.py
@@ -45,7 +45,7 @@ filenames = filter_files(get_files(path),target)
 containers = stitch_files(path, filenames, 'freqs_list','asd_list')
 freqs_total = containers['freqs_list']
 asd_total = containers['asd_list']
-#labels = containers['labels']
+labels = np.ones(len(freqs_total))
 
 X_val = np.log10(asd_total + 1e-12).astype(np.float32)
 #y_val = labels.astype(np.int32)
@@ -76,8 +76,6 @@ flags, idx, metadata = flag(X_train_clean, X_val)
 print(f"Anomalous chunks: {np.where(flags == 1)[0]}")
 #print(f"Accuracy: {np.sum(flags)/len(flags)*100}%")
 
-# print(np.where(flags & labels == 1))
-
-# matches = sum(1 for a, b in zip(flags, labels) if a == b)
-# smc = matches / len(flags)
-# print(smc)
+matches = sum(1 for a, b in zip(flags, labels) if a == b)
+smc = matches / len(flags)
+print(f"Accuracy: {smc * 100}%")

@@ -1,8 +1,6 @@
 import numpy as np
-import os, sys
 from sklearn.decomposition import PCA
-sys.path.append("/home/ilemleisher/em_project/dev/") 
-from utils import track_runtime
+from dev.utils import track_runtime
 
 # This module uses PCA to detect anomalies in the ASD data. It computes the PCA reconstruction-error per sample and 
 # flags chunks with errors above a defined threshold as anomalous.
