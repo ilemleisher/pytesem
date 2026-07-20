@@ -21,23 +21,28 @@ def flag(freqs, X, thr=0.0015):
         - pca_components: PCA components used for reconstruction
         - residual_data: array of PCA error residuals for each anomalous chunk
     """
+    # Divide dataset into train and val
+    size = len(X)
+    train = X[0:size//2]
+    val = X[size//2:]
+
     # PCA
     pca = PCA(n_components=0.99, svd_solver="full")  # keep 99% variance
-    pca.fit(X)
+    pca.fit(train)
     
     # Project each sample into PCA space
-    Z = pca.transform(X)
+    Z = pca.transform(val)
 
     # Reconstruct back into original space
     Xhat = pca.inverse_transform(Z)
 
     # Compute MSE
-    err = np.mean((X - Xhat)**2, axis=1)
+    err = np.mean((val - Xhat)**2, axis=1)
 
     flags = (err > thr).astype(np.int32)
     idx = np.where(flags == 1)[0]
 
-    residual_data = X - Xhat
+    residual_data = val - Xhat
     metadata = {}
     metadata['pca_components'] = pca.components_
     metadata['residual_data'] = residual_data
