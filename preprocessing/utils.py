@@ -1,5 +1,54 @@
 import numpy as np
-from em_project.utils import track_runtime
+from dev.utils import track_runtime
+from scipy.ndimage import binary_dilation
+
+def preprocess(tdata, data, target_len, sigma_thresh=4, radius=100):
+    """
+    This function reads in raw data file and first:
+    - Marks all points above a defined height threshold
+    - Marks all points within a defined radius around each marked point from the previous step
+    - Removes all marked points
+    - Downsamples the remaining points to a defined target length
+
+    Parameters:
+    - tdata: time data array
+    - data: raw data array
+    - target_len: desired length of the output data array
+    - sigma_thresh: number of standard deviations above the median to define the height threshold
+    - radius: number of points around each marked point to also mark for removal
+
+    Returns:
+    - filtered_tdata: time data array after filtering and downsampling
+    - filtered_data: raw data array after filtering and downsampling
+    """
+    raw_data = np.asarray(data).copy()
+    tdata = np.asarray(tdata)
+
+    med = np.median(raw_data)
+    height = med + np.std(raw_data) * sigma_thresh
+    print("Height mask")
+    # Initial keep mask
+    keep = raw_data < height
+    print("Expand by radius")
+    # Expand removals by radius
+    if radius > 0:
+        remove = ~keep
+        kernel = np.ones(2 * radius + 1, dtype=bool)
+        out = binary_dilation(remove, structure=kernel)
+        keep = ~out
+
+    filtered_data = raw_data[keep]
+    filtered_tdata = tdata[keep]
+
+    n = len(filtered_data)
+    if n == 0:
+        raise ValueError("No data left after filtering.")
+    if n < target_len:
+        raise ValueError(f"Filtered length ({n}) is smaller than target_len ({target_len}).")
+    print("Downsample")
+    # Downsample to exactly target_len points
+    idx = np.linspace(0, n - 1, target_len, dtype=int)
+    return filtered_tdata[idx], filtered_data[idx]
 
 def downsample(tdata, data, target_len):
     """
@@ -54,25 +103,17 @@ def fft(data, fs):
     - freqs: frequency bins
     - asd: ASD values corresponding to the frequency bins
     """
-    n = len(data)
-
+    print("Computing ASD")
     # Remove DC offset
     x = data - np.mean(data)
     N = len(x)
 
-    # Use Hann window
-    w = np.hanning(N)
-    xw = x * w
-
     # Perform FFT
-    Y = np.fft.rfft(xw)
+    Y = np.fft.rfft(x)
     freqs = np.fft.rfftfreq(N, d=1/fs)
 
-    # Window power normalization
-    U = (1/N) * np.sum(w**2)
-
     # Compute one-sided PSD and convert to ASD
-    psd = (1 / (fs * N * U)) * np.abs(Y)**2
+    psd = (1 / (fs * N)) * np.abs(Y)**2
     if N % 2 == 0:
         psd[1:-1] *= 2
     else:
