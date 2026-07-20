@@ -1,0 +1,9 @@
+{
+    "output_dir": "/media/sd/processed",
+    "downsample_factor": 10,
+    "n_chunks": 1,
+    "sampling_rate": 1250000,
+    "channel_number": 0,
+    "chunk_seconds": 10,
+    "retention_seconds": 1200
+}
