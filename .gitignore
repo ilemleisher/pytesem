@@ -1,0 +1,12 @@
+*.swp
+*.swo
+__pycache__/
+*.pyc
+env/
+.venv/
+*.swp
+*.swo
+__pycache__/
+*.pyc
+env/
+.venv/
