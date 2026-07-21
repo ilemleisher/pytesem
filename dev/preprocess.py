@@ -171,9 +171,9 @@ def filter_chunks(chunks, sigma_thresh=4):
 if __name__ == '__main__':
 
     # Path to the folder containing the .hdf5 files
-    base_path = "/data/lbl/run45/raw/"
-    folder = "continuous_I4_D20260707_T160503/"
-    output_path = '/home/ilemleisher/data/test_noise/'
+    base_path = "/data/lbl/run21/raw/"
+    folder = "continuous_I4_D20250102_T224744/"
+    output_path = '/home/ilemleisher/data/'
     output_directory = os.path.join(output_path, folder)
     os.makedirs(output_directory, exist_ok=True)
 

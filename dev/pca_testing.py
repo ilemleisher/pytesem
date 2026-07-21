@@ -32,10 +32,10 @@ def flag(X_train, X_val, thr=0.0015):
 
 # VALIDATION SET
 # Path to noisy data
-path = "/home/ilemleisher/data/test_noise/continuous_I4_D20260707_T160503/"
+path = "/home/ilemleisher/data/test_noise/continuous_I4_D20260710_T154539/"
 
 # Dataset
-target = 'I4_D20260707_T160511'
+target = 'I4_D20260710_T154547'
 
 print("LOADING VALIDATION SET")
 # Load continuous data from preprocessed files following naming format from preprocess.py
@@ -53,10 +53,12 @@ print(f"Found {len(X_val)} chunks")
 
 # TRAINING SET
 # Path to regular data
-path = "/home/ilemleisher/data/test_noise/continuous_I4_D20260706_T150239/"
+#path = "/home/ilemleisher/data/test_noise/continuous_I4_D20260706_T150239/"
+path = "/home/ilemleisher/data/test_noise/continuous_I4_D20260710_T154539/"
 
 # Dataset
-target = 'I4_D20260706_T150246'
+#target = 'I4_D20260706_T150246'
+target = 'I4_D20260710_T160606'
 
 # Load continuous data from preprocessed files following naming format from preprocess.py
 print("LOADING TRAINING SET")
