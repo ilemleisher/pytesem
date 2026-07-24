@@ -9,7 +9,7 @@ downsample_factor = 10              # Downsample reduction factor
 sampling_rate = 1.25e6              # Sampling rate of the raw data in Hz
 channel_number = 1                  # Channel number to read from the raw data file (0-indexed)
 
-def preprocess(tdata, data, target_len, sigma_thresh=4, radius=100):
+def preprocess(tdata, data, target_len, sigma_thresh=5, radius=100):
     """
     This function reads in raw data file and first:
     - Marks all points above a defined height threshold
@@ -32,7 +32,10 @@ def preprocess(tdata, data, target_len, sigma_thresh=4, radius=100):
     tdata = np.asarray(tdata)
 
     med = np.median(raw_data)
-    height = med + np.std(raw_data) * sigma_thresh
+    mad = np.median(np.abs(raw_data - med))
+    sigma_robust = 1.4826 * mad          # scales MAD to be a std estimate for Gaussian noise
+    height = med + sigma_thresh * sigma_robust
+
     print("Height mask")
     # Initial keep mask
     keep = raw_data < height
@@ -169,97 +172,106 @@ def filter_chunks(chunks, sigma_thresh=4):
 
 
 if __name__ == '__main__':
+    folders = [
+    "continuous_I4_D20260707_T165628/",
+    "continuous_I4_D20260707_T185711/",
+    "continuous_I4_D20260707_T224934/",
+    "continuous_I4_D20260708_T014545/",
+    "continuous_I4_D20260707_T175649/",
+    "continuous_I4_D20260707_T214851/",
+    "continuous_I4_D20260708_T004524/",
+    "continuous_I4_D20260708_T024606/",
+]
+    for folder in folders:
+        # Path to the folder containing the .hdf5 files
+        base_path = "/data/lbl/run45/raw/"
+        output_path = '/home/ilemleisher/data/test_noise/'
+        output_directory = os.path.join(output_path, folder)
+        os.makedirs(output_directory, exist_ok=True)
 
-    # Path to the folder containing the .hdf5 files
-    base_path = "/data/lbl/run21/raw/"
-    folder = "continuous_I4_D20250102_T224744/"
-    output_path = '/home/ilemleisher/data/'
-    output_directory = os.path.join(output_path, folder)
-    os.makedirs(output_directory, exist_ok=True)
+        path = os.path.join(base_path, folder)
+        filenames = get_files(path)
+        
+        # Loop over each file in the folder
+        for filename in filenames:
+            filepath = path+filename
+            print(f"Reading: {filename}")
+            num_filtered = 0
+            num_chunks = 0
 
-    path = os.path.join(base_path, folder)
-    filenames = get_files(path)
-    
-    # Loop over each file in the folder
-    for filename in filenames:
-        filepath = path+filename
-        print(f"Reading: {filename}")
-        num_filtered = 0
-        num_chunks = 0
+            with h5py.File(filepath, "r") as data:
 
-        with h5py.File(filepath, "r") as data:
+                events = data['adc1'].keys()
+                print("Found", len(events), "events")
 
-            events = data['adc1'].keys()
-            print("Found", len(events), "events")
+                # Data containers
+                freqs_list, asd_list, waveform_data_list = [], [], []
+                new_tdata_list, new_data_list, time_data_list = [], [], []
+                labels, og_freqs_list, og_asd_list = [], [], []
 
-            # Data containers
-            freqs_list, asd_list, waveform_data_list = [], [], []
-            new_tdata_list, new_data_list, time_data_list = [], [], []
-            labels, og_freqs_list, og_asd_list = [], [], []
+                # Loop over each event in the file
+                for event in events:
 
-            # Loop over each event in the file
-            for event in events:
+                    # Read ADC1 output from the specified channel
+                    waveforms = np.array(data["adc1"][str(event)])
+                    n_samples = waveforms.shape[1]
+                    time_data = np.arange(n_samples) / sampling_rate
+                    waveform_data = waveforms[channel_number]
 
-                # Read ADC1 output from the specified channel
-                waveforms = np.array(data["adc1"][str(event)])
-                n_samples = waveforms.shape[1]
-                time_data = np.arange(n_samples) / sampling_rate
-                waveform_data = waveforms[channel_number]
+                    # Calculations
+                    target_len = n_samples // downsample_factor
+                    duration = n_samples // sampling_rate
+                    fft_fs = target_len // duration
 
-                # Calculations
-                target_len = n_samples // downsample_factor
-                duration = n_samples // sampling_rate
-                fft_fs = target_len // duration
+                    og_freqs, og_asd = fft(waveform_data, sampling_rate)
 
-                og_freqs, og_asd = fft(waveform_data, sampling_rate)
+                    # Downsample the raw waveform data
+                    new_tdata, new_data = preprocess(time_data,waveform_data,target_len=target_len)
+                    #new_tdata, new_data = downsample(time_data, waveform_data, target_len=target_len)
 
-                # Downsample the raw waveform data
-                new_tdata, new_data = preprocess(time_data,waveform_data,target_len=target_len)
-                #new_tdata, new_data = downsample(time_data, waveform_data, target_len=target_len)
+                    # Divide the raw data into chunks
+                    chunks = chunk(new_tdata, new_data)
 
-                # Divide the raw data into chunks
-                chunks = chunk(new_tdata, new_data)
+                    # Count number of chunks
+                    num_chunks += len(chunks)
 
-                # Count number of chunks
-                num_chunks += len(chunks)
+                    # Discard any chunks that contains peaks above 4 sigma
+                    #filtered_chunks, num_filtered_chunks = filter_chunks(chunks, 4)
+                    filtered_chunks = chunks
+                    num_filtered_chunks = 0
+                    # Count number of filtered chunks
+                    #num_filtered += num_filtered_chunks
 
-                # Discard any chunks that contains peaks above 4 sigma
-                #filtered_chunks, num_filtered_chunks = filter_chunks(chunks, 4)
-                filtered_chunks = chunks
-                num_filtered_chunks = 0
-                # Count number of filtered chunks
-                #num_filtered += num_filtered_chunks
+                    # Loop over each remaining chunk
+                    for data_chunk in filtered_chunks:
 
-                # Loop over each remaining chunk
-                for data_chunk in filtered_chunks:
+                        # Compute the ASD for each chunk
+                        freqs, asd = fft(data_chunk[1], fft_fs)
 
-                    # Compute the ASD for each chunk
-                    freqs, asd = fft(data_chunk[1], fft_fs)
+                        freqs_list.append(freqs.astype(np.float32))
+                        asd_list.append(asd.astype(np.float32))
+                        waveform_data_list.append(waveform_data.astype(np.float32))
+                        new_tdata_list.append(new_tdata.astype(np.float32))
+                        new_data_list.append(new_data.astype(np.float32))
+                        time_data_list.append(time_data.astype(np.float32))
+                        og_freqs_list.append(og_freqs.astype(np.float32))
+                        og_asd_list.append(og_asd.astype(np.float32))
 
-                    freqs_list.append(freqs.astype(np.float32))
-                    asd_list.append(asd.astype(np.float32))
-                    waveform_data_list.append(waveform_data.astype(np.float32))
-                    new_tdata_list.append(new_tdata.astype(np.float32))
-                    new_data_list.append(new_data.astype(np.float32))
-                    time_data_list.append(time_data.astype(np.float32))
-                    og_freqs_list.append(og_freqs.astype(np.float32))
-                    og_asd_list.append(og_asd.astype(np.float32))
+            print(f"Filtered out {num_filtered}/{num_chunks} chunks in file {filename} ({num_filtered/num_chunks*100:.1f}% removal rate)")
 
-        print(f"Filtered out {num_filtered}/{num_chunks} chunks in file {filename} ({num_filtered/num_chunks*100:.1f}% removal rate)")
+            print(f'Saving...')
 
-        print(f'Saving...')
-
-        # Stack data and save to .npz file
-        np.savez(
-            f"{output_directory}/{filename[:-5]}.npz",
-            freqs_list=np.stack(freqs_list),         # (N, F) or (F,)
-            asd_list=np.stack(asd_list),             # (N, F)
-            # optional metadata
-            new_tdata_list=np.stack(new_tdata_list),
-            new_data_list=np.stack(new_data_list),
-            time_data_list=np.stack(time_data_list),
-            waveform_data_list=np.stack(waveform_data_list),
-            og_freqs_list=np.stack(og_freqs_list),
-            og_asd_list=np.stack(og_asd_list)
-)
-        print(f'Saved.')
+            # Stack data and save to .npz file
+            np.savez(
+                f"{output_directory}/{filename[:-5]}.npz",
+                freqs_list=np.stack(freqs_list),         # (N, F) or (F,)
+                asd_list=np.stack(asd_list),             # (N, F)
+                # optional metadata
+                new_tdata_list=np.stack(new_tdata_list),
+                new_data_list=np.stack(new_data_list),
+                time_data_list=np.stack(time_data_list),
+                waveform_data_list=np.stack(waveform_data_list),
+                og_freqs_list=np.stack(og_freqs_list),
+                og_asd_list=np.stack(og_asd_list)
+    )
+            print(f'Saved.')
