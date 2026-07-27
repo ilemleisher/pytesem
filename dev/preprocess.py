@@ -9,24 +9,25 @@ downsample_factor = 10              # Downsample reduction factor
 sampling_rate = 1.25e6              # Sampling rate of the raw data in Hz
 channel_number = 1                  # Channel number to read from the raw data file (0-indexed)
 
-def preprocess(tdata, data, target_len, sigma_thresh=5, radius=100):
+def preprocess(tdata, data, target_len, sigma_thresh=5, radius=100, default_value=None):
     """
     This function reads in raw data file and first:
     - Marks all points above a defined height threshold
     - Marks all points within a defined radius around each marked point from the previous step
-    - Removes all marked points
-    - Downsamples the remaining points to a defined target length
+    - Replaces all marked points with a default value (preserving uniform sampling)
+    - Downsamples the resulting data array to a defined target length
 
     Parameters:
     - tdata: time data array
     - data: raw data array
     - target_len: desired length of the output data array
     - sigma_thresh: number of standard deviations above the median to define the height threshold
-    - radius: number of points around each marked point to also mark for removal
+    - radius: number of points around each marked point to also mark for replacement
+    - default_value: value to substitute for marked points (defaults to the median of the data)
 
     Returns:
-    - filtered_tdata: time data array after filtering and downsampling
-    - filtered_data: raw data array after filtering and downsampling
+    - filtered_tdata: time data array after downsampling (uniform sampling preserved throughout)
+    - filtered_data: data array after peak replacement and downsampling
     """
     raw_data = np.asarray(data).copy()
     tdata = np.asarray(tdata)
@@ -36,34 +37,30 @@ def preprocess(tdata, data, target_len, sigma_thresh=5, radius=100):
     sigma_robust = 1.4826 * mad          # scales MAD to be a std estimate for Gaussian noise
     height = med + sigma_thresh * sigma_robust
 
+    if default_value is None:
+        default_value = med
+
     print("Height mask")
-    # Initial keep mask
-    keep = raw_data < height
+    # Points that exceed the threshold
+    remove = raw_data >= height
+
     print("Expand by radius")
-    # Expand removals by radius
+    # Expand marked region by radius
     if radius > 0:
-        remove = ~keep
         kernel = np.ones(2 * radius + 1, dtype=bool)
-        out = binary_dilation(remove, structure=kernel)
-        keep = ~out
+        remove = binary_dilation(remove, structure=kernel)
 
-        # remove = ~keep
-        # kernel = np.ones(2 * radius + 1, dtype=int)
-        # expanded_remove = np.convolve(remove.astype(int), kernel, mode="same") > 0
-        # keep = ~expanded_remove
+    # Replace marked points with default_value instead of deleting them
+    raw_data[remove] = default_value
 
-    filtered_data = raw_data[keep]
-    filtered_tdata = tdata[keep]
-
-    n = len(filtered_data)
-    if n == 0:
-        raise ValueError("No data left after filtering.")
+    n = len(raw_data)
     if n < target_len:
-        raise ValueError(f"Filtered length ({n}) is smaller than target_len ({target_len}).")
+        raise ValueError(f"Data length ({n}) is smaller than target_len ({target_len}).")
+
     print("Downsample")
-    # Downsample to exactly target_len points
+    # Downsample to exactly target_len points (uniform spacing preserved)
     idx = np.linspace(0, n - 1, target_len, dtype=int)
-    return filtered_tdata[idx], filtered_data[idx]
+    return tdata[idx], raw_data[idx]
 
 def downsample(tdata, data, target_len=12000):
     """
@@ -173,14 +170,7 @@ def filter_chunks(chunks, sigma_thresh=4):
 
 if __name__ == '__main__':
     folders = [
-    "continuous_I4_D20260707_T165628/",
-    "continuous_I4_D20260707_T185711/",
-    "continuous_I4_D20260707_T224934/",
-    "continuous_I4_D20260708_T014545/",
-    "continuous_I4_D20260707_T175649/",
-    "continuous_I4_D20260707_T214851/",
-    "continuous_I4_D20260708_T004524/",
-    "continuous_I4_D20260708_T024606/",
+    "continuous_I4_D20260706_T150239/"
 ]
     for folder in folders:
         # Path to the folder containing the .hdf5 files
