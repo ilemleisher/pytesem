@@ -91,74 +91,58 @@ def parse_file_start_time(h5path):
     return datetime.strptime(date_str + time_str, "%Y%m%d%H%M%S")
 
 
-def preprocess(tdata, data, target_len, sigma_thresh=5, radius=100):
+def preprocess(tdata, data, target_len, sigma_thresh=5, radius=100, default_value=None):
     """
-    Clean and downsample a raw waveform by removing large transient excursions.
-
-    Pipeline:
-    - Estimate a robust noise level from the median and MAD.
-    - Mark all points above median + sigma_thresh * robust_sigma.
-    - Expand each marked point by +/- `radius` samples (binary dilation),
-      so the shoulders around a spike are also removed.
-    - Drop all marked points.
-    - Downsample the survivors to exactly `target_len` points by picking
-      evenly-spaced indices.
-
-    NOTE (correctness caveat): because points are *removed* rather than
-    interpolated, the surviving samples are NOT uniformly spaced in time.
-    The returned filtered_tdata reflects this. Downstream FFT-based analysis
-    that assumes a constant sample rate will therefore see a distorted
-    frequency axis. Either use the returned time array with a non-uniform
-    method (e.g. Lomb-Scargle) or replace spikes in-place to keep uniform
-    spacing.
+    This function reads in raw data file and first:
+    - Marks all points above a defined height threshold
+    - Marks all points within a defined radius around each marked point from the previous step
+    - Replaces all marked points with a default value (preserving uniform sampling)
+    - Downsamples the resulting data array to a defined target length
 
     Parameters:
-    - tdata: time-data array (same length as `data`).
-    - data: raw waveform array.
-    - target_len: desired number of output points.
-    - sigma_thresh: number of robust sigmas above the median for the cut.
-    - radius: number of samples on each side of a marked point to also remove.
+    - tdata: time data array
+    - data: raw data array
+    - target_len: desired length of the output data array
+    - sigma_thresh: number of standard deviations above the median to define the height threshold
+    - radius: number of points around each marked point to also mark for replacement
+    - default_value: value to substitute for marked points (defaults to the median of the data)
 
     Returns:
-    - (filtered_tdata, filtered_data): tuple of arrays, each length target_len.
-
-    Raises:
-    - ValueError: if nothing survives filtering, or fewer than target_len
-      points survive.
+    - filtered_tdata: time data array after downsampling (uniform sampling preserved throughout)
+    - filtered_data: data array after peak replacement and downsampling
     """
     raw_data = np.asarray(data).copy()
     tdata = np.asarray(tdata)
 
-    # Robust noise estimate: median absolute deviation scaled to a Gaussian sigma.
     med = np.median(raw_data)
     mad = np.median(np.abs(raw_data - med))
     sigma_robust = 1.4826 * mad          # scales MAD to be a std estimate for Gaussian noise
     height = med + sigma_thresh * sigma_robust
 
+    if default_value is None:
+        default_value = med
+
     print("Height mask")
-    # Initial keep mask: True where the sample is below the spike threshold.
-    keep = raw_data < height
+    # Points that exceed the threshold
+    remove = raw_data >= height
+
     print("Expand by radius")
-    # Expand removals by radius: grow the removed region outward so the
-    # rising/falling shoulders of each spike are excluded too.
+    # Expand marked region by radius
     if radius > 0:
-        remove = ~keep
         kernel = np.ones(2 * radius + 1, dtype=bool)
-        out = binary_dilation(remove, structure=kernel)
-        keep = ~out
+        remove = binary_dilation(remove, structure=kernel)
 
-    filtered_data = raw_data[keep]
-    filtered_tdata = tdata[keep]
+    # Replace marked points with default_value instead of deleting them
+    raw_data[remove] = default_value
 
-    n = len(filtered_data)
-    if n == 0:
-        raise ValueError("No data left after filtering.")
+    n = len(raw_data)
     if n < target_len:
-        raise ValueError(f"Filtered length ({n}) is smaller than target_len ({target_len}).")
+        raise ValueError(f"Data length ({n}) is smaller than target_len ({target_len}).")
+
     print("Downsample")
-    # Downsample to exactly target_len points by evenly-spaced index selection.
+    # Downsample to exactly target_len points (uniform spacing preserved)
     idx = np.linspace(0, n - 1, target_len, dtype=int)
-    return filtered_tdata[idx], filtered_data[idx]
+    return tdata[idx], raw_data[idx]
 
 
 def fft(data, fs):
