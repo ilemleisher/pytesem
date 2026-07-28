@@ -4,6 +4,28 @@ from scipy.ndimage import binary_dilation
 from datetime import datetime, timedelta
 
 
+_chunk_count_cache = {}
+
+
+def _cached_chunk_count(h5path):
+    """
+    Get the number of chunks in a finalized (closed) HDF5 file, caching
+    the result so repeated lookups don't re-open the file.
+
+    Only call this on files guaranteed to no longer be written to;
+    calling it on the currently-open file would cache a stale count.
+
+    Parameters:
+    - h5path: path to a finalized HDF5 file.
+
+    Returns:
+    - int: number of chunks in the file.
+    """
+    if h5path not in _chunk_count_cache:
+        _chunk_count_cache[h5path] = len(list_chunks(h5path))
+    return _chunk_count_cache[h5path]
+
+
 def event_index(name):
     """
     Convert an event/chunk name into its integer index.
@@ -45,25 +67,111 @@ def list_chunks(h5path):
         return []   # file mid-write / adc1 not created yet
 
 
+def base_run_id(h5path):
+    """
+    Extract the run identifier shared by all files in a multi-file
+    acquisition run.
+
+    Files belong to the same run if they share the same
+    "D<YYYYMMDD>_T<HHMMSS>" segment, differing only in their trailing
+    sequence number (e.g. "..._0001.h5" vs "..._0002.h5").
+
+    Parameters:
+    - h5path: path (or filename) to parse.
+
+    Returns:
+    - str: the shared "D<YYYYMMDD>_T<HHMMSS>" run identifier.
+
+    Raises:
+    - ValueError: if the filename doesn't match the expected pattern.
+    """
+    name = os.path.basename(h5path)
+    m = re.search(r"(D\d{8}_T\d{6})_\d+", name)
+    if not m:
+        raise ValueError(f"Could not parse run id from filename: {name}")
+    return m.group(1)
+
+
+def file_sequence_number(h5path):
+    """
+    Extract the per-file sequence number from the filename.
+
+    Expects "_D<YYYYMMDD>_T<HHMMSS>_<NNNN>", where NNNN increases
+    consecutively across files belonging to the same acquisition run.
+
+    Parameters:
+    - h5path: path (or filename) to parse.
+
+    Returns:
+    - int: the sequence number (e.g. "..._0002" -> 2).
+
+    Raises:
+    - ValueError: if no sequence number pattern is present.
+    """
+    name = os.path.basename(h5path)
+    m = re.search(r"_D\d{8}_T\d{6}_(\d+)", name)
+    if not m:
+        raise ValueError(f"Could not parse sequence number from filename: {name}")
+    return int(m.group(1))
+
+
+def _sibling_files(h5path):
+    """
+    Find all files in the same directory belonging to the same
+    acquisition run as h5path, sorted by sequence number.
+
+    Parameters:
+    - h5path: path to a file in the run.
+
+    Returns:
+    - list[str]: full paths of sibling files, in run order.
+    """
+    d = os.path.dirname(h5path)
+    run_id = base_run_id(h5path)
+    siblings = []
+    for f in os.listdir(d):
+        full = os.path.join(d, f)
+        try:
+            if base_run_id(full) == run_id:
+                siblings.append(full)
+        except ValueError:
+            continue  # not part of any run (or unrelated file in this dir)
+    return sorted(siblings, key=file_sequence_number)
+
+
 def chunk_timestamp(h5path, chunk_name, duration):
     """
     Compute the absolute start time of a given chunk.
 
-    Combines the DAQ start time parsed from the filename with the chunk's
-    position in the sequence. Assumes chunks are contiguous and each spans
-    `duration` seconds, so chunk N starts at start_time + (N-1)*duration.
+    Combines the DAQ run start time (shared across all files in a
+    multi-file run) with the chunk's *global* position in the sequence.
+    Chunks are contiguous within a file, and files sharing the same base
+    timestamp are contiguous continuations of the same run rather than
+    separate start times, so earlier files' chunk counts must be added
+    to get the true offset. Earlier files' chunk counts are cached since
+    the DAQ writes files sequentially, meaning any file earlier in the run
+    than h5path is guaranteed already closed and won't grow further.
 
     Parameters:
-    - h5path: path to the HDF5 file (used to parse the DAQ start time).
-    - chunk_name: chunk name of the form "event<N>".
+    - h5path: path to the HDF5 file (used to parse the run start time and
+      sequence number).
+    - chunk_name: chunk name of the form "event<N>", local to h5path.
     - duration: length of a single chunk in seconds.
 
     Returns:
-    - datetime: absolute UTC-naive start time of the chunk.
+    - datetime: absolute start time of the chunk within the full run.
     """
     start = parse_file_start_time(h5path)
-    idx = event_index(chunk_name)               # "event1" -> 1
-    return start + timedelta(seconds=(idx - 1) * duration)
+    local_idx = event_index(chunk_name)
+
+    prior_chunks = 0
+    for f in _sibling_files(h5path):
+        if f == h5path:
+            break
+        prior_chunks += _cached_chunk_count(f)
+
+    global_idx = prior_chunks + local_idx
+    return start + timedelta(seconds=(global_idx - 1) * duration)
 
 
 def parse_file_start_time(h5path):
