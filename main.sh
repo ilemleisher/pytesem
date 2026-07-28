@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DATA_DIR="${1:-/path/to/data_dir}"
-OUTPUT_DIR="${2:-/path/to/output_dir}"
+RAW_DIR="/data/run45/raw"
+OUTPUT_DIR="${1:-/path/to/output_dir}"
 MAIN_SCRIPT='run_naq.py'
 
-# Ensure the directories exist (neither run_naq.py nor np.savez/savefig create them).
-mkdir -p "$DATA_DIR" "$OUTPUT_DIR"
+# --- find the most recent timestamped directory in RAW_DIR ---
+DATA_DIR=$(find "$RAW_DIR" -mindepth 1 -maxdepth 1 -type d \
+    -name 'continuous_I*_D*_T*' | sort | tail -n 1)
+
+if [[ -z "$DATA_DIR" ]]; then
+    echo "Error: no matching directories found in $RAW_DIR" >&2
+    exit 1
+fi
+
+echo "Using most recent data directory: $DATA_DIR"
 
 # --- start DAQ ---
 python run_daq.py \
@@ -28,14 +36,10 @@ echo "Main started (PID $MAIN_PID)"
 cleanup() {
     echo "Shutting down..."
     kill "$DAQ_PID" 2>/dev/null || true
-    # give main time to drain remaining chunks, then stop.
-    # run_naq.py notices the dead DAQ via daq_alive() and exits after one final pass.
     wait "$MAIN_PID" 2>/dev/null || true
 }
 trap cleanup INT TERM
 
-# wait for DAQ to finish naturally.
-# '|| true' so a nonzero DAQ exit under `set -e` doesn't skip the drain below.
 wait "$DAQ_PID" || true
 echo "DAQ finished. Waiting for main to drain..."
 wait "$MAIN_PID" || true
