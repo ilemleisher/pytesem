@@ -36,7 +36,7 @@ def analyze(reduced_data, timestamp,
     Returns:
     - matplotlib.figure.Figure: the live figure, so the caller can save it.
     """
-
+    print("Analyzing data...")
     # --- Load the fields we need from the reduced data ---
     # NOTE: key is "residual" (singular), matching reduce_window's output.
     residual = reduced_data["residual"]
@@ -99,5 +99,5 @@ def analyze(reduced_data, timestamp,
     state["fig"].canvas.draw_idle()
     state["fig"].canvas.flush_events()
     plt.pause(0.001)                              # yield briefly so the GUI repaints
-
+    print("Data analyzed.")
     return state["fig"]
