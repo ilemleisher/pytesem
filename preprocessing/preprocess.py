@@ -73,7 +73,6 @@ def base_run_id(h5path):
     acquisition run.
 
     Files belong to the same run if they share the same
-    "D<YYYYMMDD>_T<HHMMSS>" segment, differing only in their trailing
     sequence number (e.g. "..._F0001.hdf5" vs "..._F0002.hdf5").
 
     Parameters:

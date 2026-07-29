@@ -3,7 +3,7 @@ import numpy as np
 from collections import deque
 from preprocessing.preprocess import list_chunks, process_chunk, daq_alive, _is_latest_open_chunk
 from data_reduction.data_reduction import reduce_window
-from analysis.analysis import analyze
+from analysis.analysis import live_figure_worst_bins, live_figure_sum_stats, live_figure_psd
 import matplotlib.pyplot as plt
 
 # How long to wait between filesystem scans when the DAQ is still running.
@@ -47,7 +47,7 @@ def main():
 
     # Handle to the live matplotlib figure; stays None until the first analyze() call.
     # Used at the end to decide whether there's anything to save.
-    fig = None
+    fig1 = fig2 = fig3 = None
 
     # ------------------------------------------------------------------
     # MAIN POLLING LOOP
@@ -111,7 +111,9 @@ def main():
                         # -------------------
                         # Produce/update the live figure from the reduced data.
                         # Returns a matplotlib Figure we hold onto for final save.
-                        fig = analyze(reduced_data, timestamp)
+                        fig1 = live_figure_sum_stats(reduced_data, timestamp)
+                        fig2 = live_figure_worst_bins(reduced_data, timestamp)
+                        fig3 = live_figure_psd(reduced_data, timestamp)
 
         # If the DAQ has exited, the scan we just completed already covered
         # every finalized chunk (nothing is "open" anymore), so we're done.
@@ -124,13 +126,19 @@ def main():
     # ------------------------------------------------------------------
     # FINALIZATION
     # ------------------------------------------------------------------
-    if fig is not None:
-        # Turn off interactive mode and write the last figure to disk.
+    if fig1 is not None:
         plt.ioff()
-        fig.savefig(os.path.join(output_dir, "noise_levels_final.png"), dpi=150)
-        print(f"Saved final plot to {output_dir}/noise_levels_final.png", flush=True)
+
+        figs_to_save = [
+            (fig1, "noise_levels_final.png"),
+            (fig2, "worst_bins_final.png"),
+            (fig3, "psd_final.png"),
+        ]
+        for fig, filename in figs_to_save:
+            path = os.path.join(output_dir, filename)
+            fig.savefig(path, dpi=150)
+            print(f"Saved final plot to {path}", flush=True)
     else:
-        # Window never filled → reduction/analysis never ran → nothing to save.
         print("No full window was ever reached; no plot to save.", flush=True)
 
 

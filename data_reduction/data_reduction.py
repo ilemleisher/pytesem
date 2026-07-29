@@ -93,6 +93,8 @@ def reduce_window(window):
             f"need >= {MIN_TRAIN_ROWS}"
         )
 
+    print(f"Reducing window...")
+
     # Frequency axis is identical across chunks, so take it from the first.
     bins = window[0]["bins"]
     # Stack per-chunk ASDs into (n_chunks, n_bins).
@@ -107,4 +109,5 @@ def reduce_window(window):
 
     reduced = pca(X_train, X_test)
     reduced["bins"] = bins            # carry the frequency axis through to output
+    print("Window reduced.") 
     return reduced
