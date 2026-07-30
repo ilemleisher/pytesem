@@ -30,7 +30,7 @@ def event_index(name):
     """
     Convert an event/chunk name into its integer index.
 
-    e.g. "event10" -> 10. Used as a sort key so chunks come back in
+    e.g. "event_10" -> 10. Used as a sort key so chunks come back in
     acquisition order rather than lexicographic order (which would put
     "event10" before "event2").
 
@@ -40,8 +40,8 @@ def event_index(name):
     Returns:
     - int: the numeric index N.
     """
-    # "event10" -> 10
-    return int(name.replace("event", ""))
+    # "event_10" -> 10
+    return int(name.replace("event_", ""))
 
 
 def list_chunks(h5path):
@@ -49,7 +49,7 @@ def list_chunks(h5path):
     Return the event/chunk names in an HDF5 file, sorted in acquisition order.
 
     Reads the keys under the 'adc1' group and sorts them numerically via
-    event_index (event1, event2, ..., event10, ...). Fails soft: if the file
+    event_index (event_1, event_2, ..., event_10, ...). Fails soft: if the file
     is still being created / mid-write, or the 'adc1' group doesn't exist yet,
     returns an empty list instead of raising, so the caller can just retry
     on the next poll.
@@ -73,8 +73,7 @@ def base_run_id(h5path):
     acquisition run.
 
     Files belong to the same run if they share the same
-    "D<YYYYMMDD>_T<HHMMSS>" segment, differing only in their trailing
-    sequence number (e.g. "..._0001.h5" vs "..._0002.h5").
+    sequence number (e.g. "..._F0001.hdf5" vs "..._F0002.hdf5").
 
     Parameters:
     - h5path: path (or filename) to parse.
@@ -86,7 +85,7 @@ def base_run_id(h5path):
     - ValueError: if the filename doesn't match the expected pattern.
     """
     name = os.path.basename(h5path)
-    m = re.search(r"(D\d{8}_T\d{6})_\d+", name)
+    m = re.search(r"(D\d{8}_T\d{6})_F\d+", name)
     if not m:
         raise ValueError(f"Could not parse run id from filename: {name}")
     return m.group(1)
@@ -96,20 +95,20 @@ def file_sequence_number(h5path):
     """
     Extract the per-file sequence number from the filename.
 
-    Expects "_D<YYYYMMDD>_T<HHMMSS>_<NNNN>", where NNNN increases
+    Expects "_D<YYYYMMDD>_T<HHMMSS>_F<NNNN>", where NNNN increases
     consecutively across files belonging to the same acquisition run.
 
     Parameters:
     - h5path: path (or filename) to parse.
 
     Returns:
-    - int: the sequence number (e.g. "..._0002" -> 2).
+    - int: the sequence number (e.g. "..._F0002" -> 2).
 
     Raises:
     - ValueError: if no sequence number pattern is present.
     """
     name = os.path.basename(h5path)
-    m = re.search(r"_D\d{8}_T\d{6}_(\d+)", name)
+    m = re.search(r"_D\d{8}_T\d{6}_F(\d+)", name)
     if not m:
         raise ValueError(f"Could not parse sequence number from filename: {name}")
     return int(m.group(1))

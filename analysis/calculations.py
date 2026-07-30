@@ -37,7 +37,7 @@ def get_metrics(reduced_data, mode):
 
     if mode == "per_bin_stat":
     # ---------- PER BIN STATISTICS -----------
-        bin_energy = np.sum(residual**2, axis=0)
+        bin_energy = residual**2
 
         metrics = {
             'bin_energy': bin_energy
@@ -45,4 +45,3 @@ def get_metrics(reduced_data, mode):
 
         return metrics
     # -----------------------------------------
- 

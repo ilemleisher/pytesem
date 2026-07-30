@@ -30,7 +30,7 @@ def pca_reconstruct(pca, X_test_s):
     Xhat_s = pca.inverse_transform(Z)
 
     # Residual in standardized space: what the PCA model failed to capture.
-    residual = X_test_s - Xhat_s[0]
+    residual = (X_test_s - Xhat_s).reshape(-1)
 
     reduced_data = {
         "residual": residual
@@ -65,6 +65,8 @@ def reduce_window(window, first_pca=None, first_scaler=None):
             f"Window too small for PCA: got {len(window)}, "
             f"need >= {MIN_TRAIN_ROWS}"
         )
+
+    print(f"Reducing window...")
 
     # Frequency axis is identical across chunks, so take it from the first.
     bins = window[0]["bins"]
