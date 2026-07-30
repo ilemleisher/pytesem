@@ -2,7 +2,7 @@ import os, time, glob, argparse
 import numpy as np
 from collections import deque
 from preprocessing.preprocess import list_chunks, process_chunk, daq_alive, _is_latest_open_chunk
-from data_reduction.data_reduction import reduce_window
+from feature_extraction.feature_extraction import reduce_window
 from analysis.analysis import live_figure_worst_bins, live_figure_sum_stats, live_figure_psd
 import matplotlib.pyplot as plt
 
@@ -48,6 +48,10 @@ def main():
     # Handle to the live matplotlib figure; stays None until the first analyze() call.
     # Used at the end to decide whether there's anything to save.
     fig1 = fig2 = fig3 = None
+
+    # Initialize first fit PCA and scaler for use with long term analysis
+    first_pca = None
+    first_scaler = None
 
     # ------------------------------------------------------------------
     # MAIN POLLING LOOP
@@ -98,17 +102,21 @@ def main():
                     if len(window) == window.maxlen:      # full → safe to analyze
                         # Collapse the window of chunks into a reduced summary
                         # (expected to be a dict of named arrays; see note below).
-                        reduced_data = reduce_window(list(window))
+                        reduced_data, pca, scaler = reduce_window(list(window), first_pca, first_scaler)
                         # Timestamp the output using the newest chunk in the window.
                         timestamp = processed['timestamp']
                         ts_str = timestamp.strftime("%Y%m%dT%H%M%S")
                         # Persist the reduced data. **reduced_data requires a
                         # dict with string keys.
                         np.savez(f"{output_dir}/rd_{ts_str}.npz", **reduced_data)
+                        # Store first PCA components in memory for long term analysis
+                        if first_pca is None:
+                            first_pca = pca
+                            first_scaler = scaler
 
                         # -------------------
                         # DATA ANALYSIS
-                        # -------------------
+                        # -------------------                     
                         # Produce/update the live figure from the reduced data.
                         # Returns a matplotlib Figure we hold onto for final save.
                         fig1 = live_figure_sum_stats(reduced_data, timestamp)

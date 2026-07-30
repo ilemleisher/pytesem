@@ -2,15 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from calculations import get_metrics
-from operator import itemgetter
 from datetime import timedelta
-
-
-def unpack(reduced_data, keys):
-    try:
-        return itemgetter(*keys)(reduced_data)
-    except KeyError as e:
-        raise KeyError(f"Key {e} not found in reduced_data.") from e
+from analysis.utils import unpack
     
 
 def get_worst_bins(reduced_data, n_top=5):
