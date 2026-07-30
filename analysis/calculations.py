@@ -1,9 +1,16 @@
 import numpy as np
-from analysis import unpack
+from operator import itemgetter
 
 # To add new evaluation metrics to either the summary statistics (used in live figures showing noise per PSD) or the per bin statistics 
 # (used in live figures showing noise per frequency bin), simply add the calculation in the corresponding section (e.g., rss, bin_energy, ...)
 # and add a corresponding key to the metrics dictionary. 
+
+
+def unpack(reduced_data, keys):
+    try:
+        return itemgetter(*keys)(reduced_data)
+    except KeyError as e:
+        raise KeyError(f"Key {e} not found in reduced_data.") from e
 
 
 def get_metrics(reduced_data, mode):
@@ -37,7 +44,7 @@ def get_metrics(reduced_data, mode):
 
     if mode == "per_bin_stat":
     # ---------- PER BIN STATISTICS -----------
-        bin_energy = np.sum(residual**2, axis=0)
+        bin_energy = residual**2
 
         metrics = {
             'bin_energy': bin_energy

@@ -55,7 +55,7 @@ def pca(X_train, X_test):
     Xhat_s = pca.inverse_transform(Z)
 
     # Residual in standardized space: what the PCA model failed to capture.
-    residual = X_test_s - Xhat_s[0]
+    residual = (X_test_s - Xhat_s).reshape(-1)
 
     reduced_data = {
         "pca_components": pca.components_,
@@ -109,5 +109,6 @@ def reduce_window(window):
 
     reduced = pca(X_train, X_test)
     reduced["bins"] = bins            # carry the frequency axis through to output
+    reduced["asd"] = X_test 
     print("Window reduced.") 
     return reduced

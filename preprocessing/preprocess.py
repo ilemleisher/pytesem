@@ -229,11 +229,9 @@ def preprocess(tdata, data, target_len, sigma_thresh=5, radius=100, default_valu
     if default_value is None:
         default_value = med
 
-    print("Height mask")
     # Points that exceed the threshold
     remove = raw_data >= height
 
-    print("Expand by radius")
     # Expand marked region by radius
     if radius > 0:
         kernel = np.ones(2 * radius + 1, dtype=bool)
@@ -246,7 +244,6 @@ def preprocess(tdata, data, target_len, sigma_thresh=5, radius=100, default_valu
     if n < target_len:
         raise ValueError(f"Data length ({n}) is smaller than target_len ({target_len}).")
 
-    print("Downsample")
     # Downsample to exactly target_len points (uniform spacing preserved)
     idx = np.linspace(0, n - 1, target_len, dtype=int)
     return tdata[idx], raw_data[idx]
@@ -270,7 +267,6 @@ def fft(data, fs):
     Returns:
     - (freqs, asd): frequency bins (Hz) and ASD values, both length N//2 + 1.
     """
-    print("Computing ASD")
     # Remove DC offset so bin 0 doesn't dominate.
     x = data - np.mean(data)
     N = len(x)
