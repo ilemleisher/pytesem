@@ -3,43 +3,14 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 # Minimum number of rows required in the window before PCA is attempted.
-# Note: PCA actually trains on len(window) - 1 rows (the last row is held
+# NOTE: PCA actually trains on len(window) - 1 rows (the last row is held
 # out as the test sample), so the effective training count is one less than
 # the window length. See reduce_window.
 MIN_TRAIN_ROWS = 10
 
 
-def pca(X_train, X_test):
-    """
-    Fit PCA on a set of training spectra and measure how anomalous a single
-    test spectrum is relative to that model.
+def pca_fit(X_train, X_test):
 
-    The approach: standardize using training statistics only (to avoid
-    leaking the test sample into the fit), fit PCA retaining enough
-    components to explain 99% of the training variance, project the test
-    sample into that subspace and back, and return the reconstruction
-    residual. A large residual means the test spectrum contains structure
-    the training set's principal components can't reproduce, i.e. it's
-    spectrally unusual.
-
-    Inputs are assumed to already be in log space (see reduce_window).
-
-    Parameters:
-    - X_train: 2D array (n_train, n_bins) of training spectra.
-    - X_test:  1D array (n_bins,) — the single spectrum to evaluate.
-
-    Returns:
-    - dict with keys:
-        "pca_components": array (k, n_bins), the retained principal axes.
-                          NOTE: k varies between calls because n_components
-                          is a variance fraction, not a fixed count.
-        "residual":      1D array (n_bins,), standardized reconstruction
-                         residual for the test spectrum.
-        "mean":          1D array (n_bins,), per-bin training mean used by
-                         the scaler.
-        "scale":         1D array (n_bins,), per-bin training std used by
-                         the scaler.
-    """
     # Standardize using training stats only; the scaler is never fit on X_test.
     scaler = StandardScaler().fit(X_train)
     X_test = X_test.reshape(1, -1)               # PCA/scaler expect 2D input
@@ -50,6 +21,10 @@ def pca(X_train, X_test):
     pca = PCA(n_components=0.99, svd_solver="full")
     pca.fit(X_train_s)
 
+    return pca, X_test_s, scaler
+
+def pca_reconstruct(pca, X_test_s):
+
     # Project the test spectrum into the PCA subspace and reconstruct it.
     Z = pca.transform(X_test_s)
     Xhat_s = pca.inverse_transform(Z)
@@ -58,15 +33,13 @@ def pca(X_train, X_test):
     residual = (X_test_s - Xhat_s).reshape(-1)
 
     reduced_data = {
-        "pca_components": pca.components_,
-        "residual": residual,
-        "mean": scaler.mean_,
-        "scale": scaler.scale_,
+        "residual": residual
     }
+
     return reduced_data
 
 
-def reduce_window(window):
+def reduce_window(window, first_pca=None, first_scaler=None):
     """
     Reduce a window of processed chunks into a PCA-based anomaly summary.
 
@@ -107,8 +80,18 @@ def reduce_window(window):
     X_train = X_clean[:-1]
     X_test = X_clean[-1]
 
-    reduced = pca(X_train, X_test)
-    reduced["bins"] = bins            # carry the frequency axis through to output
-    reduced["asd"] = X_test 
-    print("Window reduced.") 
-    return reduced
+    # Fit PCA on current window
+    pca, scaler, X_test_s = pca_fit(X_train, X_test)
+    short = pca_reconstruct(pca, X_test_s)
+
+    reduced = {
+        "residual": short["residual"],
+        "bins": bins,
+        "asd": X_test,
+    }
+
+    if first_pca is not None and first_scaler is not None:
+        X_test_s_long = first_scaler.transform(X_test.reshape(1, -1))
+        reduced["long_term_residual"] = pca_reconstruct(first_pca, X_test_s_long)["residual"]
+
+    return reduced, pca, scaler

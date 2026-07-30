@@ -1,10 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from analysis.calculations import get_metrics, unpack
+from calculations import get_metrics
 from datetime import timedelta
-
-
+from analysis.utils import unpack
+    
 def get_worst_bins(reduced_data, n_top=5):
 
     bin_energy = get_metrics(reduced_data, "per_bin_stat")["bin_energy"]
