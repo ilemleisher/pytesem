@@ -2,14 +2,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from calculations import get_metrics
-from datetime import timedelta
 from analysis.utils import unpack
+
     
-def get_worst_bins(reduced_data, n_top=5):
-
-    bin_energy = get_metrics(reduced_data, "per_bin_stat")["bin_energy"]
-    top_bins = np.argsort(bin_energy)[::-1][:n_top]
-
+def get_worst_bins(reduced_data, n_top=5, residual_key="residual"):
+    residual = reduced_data[residual_key]
+    # "energy" in the standardized residual space
+    energies = np.square(residual)
+    top_bins = np.argsort(energies)[::-1][:n_top]
     return top_bins
 
 
@@ -197,66 +197,135 @@ def live_figure_sum_stats(reduced_data, timestamp,
 
 
 def live_figure_worst_bins(reduced_data, timestamp, n_top=5,
-                          state={"fig": None, "ax": None, "start_time": None,
-                                 "x": [], "residual_history": []}):
-    """
-    Update a live, persistent plot of per-bin residuals for the worst bins.
+                          state={"fig": None, "axes": None, "start_time": None,
+                                 "x": [],
+                                 "residual_history_short": [],
+                                 "residual_history_long": []}):
+    # ---- Extract residuals + bin frequencies ----
+    residual_short, bins_axis = unpack(reduced_data, ['residual','bins'])
 
-    Called once per full window as new chunks arrive. Tracks the full history
-    of per-bin residuals, then on each call re-selects the n_top bins with the
-    highest current bin energy and plots their residual trace over time. The
-    set of "worst" bins can change from call to call as new anomalies appear;
-    this always reflects the most recent ranking, redrawing the full history
-    for whichever bins currently qualify.
+    if "long_term_residual" in reduced_data:
+        residual_long = reduced_data["long_term_residual"]
+        has_long = True
+    else:
+        residual_long = np.full_like(residual_short, np.nan, dtype=float)
+        has_long = False
 
-    Parameters:
-    - reduced_data: dict from reduce_window, containing at least "residual"
-      (array of per-bin standardized residuals for the current chunk).
-    - timestamp: datetime of the chunk under test; used as the x-axis value.
-    - n_top: number of worst bins to plot.
-    - state: persistent accumulator, implemented as a mutable default argument.
-      NOTE: ties all calls in a process to one shared plot; fine for a single
-      stream, not for driving two independent streams concurrently.
-
-    Returns:
-    - matplotlib.figure.Figure: the live figure, so the caller can save it.
-    """
-    top_bins = get_worst_bins(reduced_data, n_top)
-
-    residual = unpack(reduced_data, ["residual"])
-
+    # ---- Persistent state update ----
     if state["start_time"] is None:
         state["start_time"] = timestamp
+
     state["x"].append(timestamp)
-    state["residual_history"].append(residual)
-    residuals = np.array(state["residual_history"])
+    state["residual_history_short"].append(residual_short)
+    state["residual_history_long"].append(residual_long)
 
     x = state["x"]
+    residuals_short = np.array(state["residual_history_short"])
+    residuals_long = np.array(state["residual_history_long"])
 
+    # ---- Create figure once ----
     if state["fig"] is None:
         plt.ion()
-        state["fig"], state["ax"] = plt.subplots(
-            1, 1, figsize=(10, 4), constrained_layout=True)
+        fig, (ax_short, ax_long) = plt.subplots(
+            2, 1, figsize=(12, 8), sharex=True, constrained_layout=True
+        )
+        state["fig"] = fig
+        state["axes"] = {"short": ax_short, "long": ax_long}
         state["fig"].show()
 
-    ax = state["ax"]
+    axes = state["axes"]
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    # ---- Select worst bins for this update ----
+    top_bins_short = get_worst_bins(reduced_data, n_top=n_top, residual_key="residual")
+
+    top_bins_long = []
+    if has_long:
+        top_bins_long = get_worst_bins(
+            reduced_data, n_top=n_top, residual_key="long_term_residual"
+        )
+
+    def autoscale_from_bins(ax, residuals_all_times, bins):
+        """Autoscale y based on the currently plotted bin histories; ignore NaNs."""
+        if len(bins) == 0:
+            return
+        vmin = np.inf
+        vmax = -np.inf
+        for b in bins:
+            y = residuals_all_times[:, b]
+            y = y[np.isfinite(y)]
+            if y.size == 0:
+                continue
+            vmin = min(vmin, float(y.min()))
+            vmax = max(vmax, float(y.max()))
+
+        if not np.isfinite(vmin) or not np.isfinite(vmax):
+            return
+
+        if vmin == vmax:
+            pad = max(abs(vmin) * 0.1, 1e-12)
+            ax.set_ylim(vmin - pad, vmax + pad)
+        else:
+            pad = (vmax - vmin) * 0.1  # 10% padding
+            ax.set_ylim(vmin - pad, vmax + pad)
+
+    # ----------------------
+    # SHORT-term subplot
+    # ----------------------
+    ax = axes["short"]
     ax.clear()
 
-    for b in top_bins:
-        ax.plot(x, residuals[:, b], lw=3, label=f"Bin {b}")
+    for i, b in enumerate(top_bins_short):
+        freq = bins_axis[b]
+        ax.plot(
+            x, residuals_short[:, b],
+            lw=2, color=colors[i % len(colors)],
+            label=f"Bin {b} ({freq:.3g} Hz)"
+        )
 
     ax.axhline(0, color="k", lw=0.5, alpha=0.5)
-    ax.set_ylabel("Standardized residual")
-    ax.set_xlabel("Time (HH:MM)")
-    ax.set_title(f"Top {n_top} most anomalous frequency bins over time  "
-                    f"(start {state['start_time']:%Y-%m-%d %H:%M:%S})")
-    ax.legend(fontsize=8, ncol=n_top)
+    ax.set_ylabel("Std residual\n(short-term)", fontsize=10)
     ax.grid(alpha=0.3)
+    ax.legend(fontsize=8, ncol=max(1, n_top), loc="best")
+    ax.set_title(
+        f"Top {n_top} anomalous frequency bins (short-term) "
+        f"start {state['start_time']:%Y-%m-%d %H:%M:%S}"
+    )
 
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    autoscale_from_bins(ax, residuals_short, top_bins_short)
+
+    # ----------------------
+    # LONG-term subplot
+    # ----------------------
+    ax = axes["long"]
+    ax.clear()
+
+    if has_long and len(top_bins_long) > 0:
+        for i, b in enumerate(top_bins_long):
+            freq = bins_axis[b]
+            ax.plot(
+                x, residuals_long[:, b],
+                lw=2, color=colors[i % len(colors)],
+                label=f"Bin {b} ({freq:.3g} Hz)"
+            )
+        ax.legend(fontsize=8, ncol=max(1, n_top), loc="best")
+        title = f"Top {n_top} anomalous frequency bins (long-term)"
+    else:
+        title = "Top anomaly bins (long-term) — waiting for first long-term model..."
+
+    ax.axhline(0, color="k", lw=0.5, alpha=0.5)
+    ax.set_ylabel("Std residual\n(long-term)", fontsize=10)
+    ax.grid(alpha=0.3)
+    ax.set_title(f"{title} start {state['start_time']:%Y-%m-%d %H:%M:%S}")
+
+    autoscale_from_bins(ax, residuals_long, top_bins_long)
+
+    # ---- Shared x-axis formatting ----
+    axes["long"].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    axes["long"].xaxis.set_major_locator(mdates.AutoDateLocator())
+    axes["long"].set_xlabel("Time (HH:MM)")
+
     state["fig"].autofmt_xdate()
-
     state["fig"].canvas.draw_idle()
     state["fig"].canvas.flush_events()
     plt.pause(0.001)
@@ -269,32 +338,25 @@ def live_figure_psd(reduced_data, timestamp, n_top=5,
     """
     Update a live, persistent plot of the PSD for the current chunk.
 
-    Called once per chunk. Unlike the other live_figure* functions, this does
-    not accumulate a time series — each call redraws the full PSD for the
-    current chunk only, with the n_top most anomalous bins (by residual energy)
-    marked as vertical lines. The same Figure is reused and updated across
-    calls.
-
-    Parameters:
-    - reduced_data: dict from reduce_window, containing at least "bins"
-      (frequency values), "asd" (amplitude spectral density for the current
-      chunk), and "residual" (per-bin standardized residual, used to rank
-      bins by anomalousness).
-    - timestamp: datetime marking the start of the chunk under test.
-    - chunk_seconds: duration of the chunk, used to compute the end time
-      shown in the title.
-    - n_top: number of worst bins to highlight.
-    - state: persistent accumulator, implemented as a mutable default
-      argument. NOTE: ties all calls in a process to one shared plot; fine
-      for a single stream, not for driving two independent streams
-      concurrently.
-
-    Returns:
-    - matplotlib.figure.Figure: the live figure, so the caller can save it.
+    Marks BOTH:
+      - top-n short-term anomalous bins (red) using residual
+      - top-n long-term anomalous bins (blue) using long_term_residual (if available)
     """
+
     bins, asd = unpack(reduced_data, ["bins", "asd"])
 
-    top_bins = get_worst_bins(reduced_data)
+    # Short-term top bins
+    top_bins_short = get_worst_bins(
+        reduced_data, n_top=n_top, residual_key="residual"
+    )
+
+    # Long-term top bins (optional)
+    has_long = "long_term_residual" in reduced_data
+    top_bins_long = []
+    if has_long:
+        top_bins_long = get_worst_bins(
+            reduced_data, n_top=n_top, residual_key="long_term_residual"
+        )
 
     if state["fig"] is None:
         plt.ion()
@@ -306,9 +368,29 @@ def live_figure_psd(reduced_data, timestamp, n_top=5,
 
     ax.loglog(bins, asd)
 
-    for i, b in enumerate(top_bins):
-        ax.axvline(bins[b], color="red", alpha=0.5, lw=2,
-                   label="Problem Bins" if i == 0 else None)
+    short_color = "red"
+    long_color = "blue"
+
+    # Plot short-term marker lines
+    for i, b in enumerate(top_bins_short):
+        ax.axvline(
+            bins[b],
+            color=short_color,
+            alpha=0.6,
+            lw=2.5,
+            label="Short-term top bins" if i == 0 else None
+        )
+
+    # Plot long-term marker lines (if available)
+    if has_long:
+        for i, b in enumerate(top_bins_long):
+            ax.axvline(
+                bins[b],
+                color=long_color,
+                alpha=0.6,
+                lw=2.5,
+                label="Long-term top bins" if i == 0 else None
+            )
 
     ax.set_title(f"PSD ({timestamp:%H:%M:%S})")
     ax.set_xlabel("Frequency [Hz]", fontsize=14)
@@ -316,7 +398,7 @@ def live_figure_psd(reduced_data, timestamp, n_top=5,
     ax.set_xlim(0.01, 10**5)
     ax.set_ylim(10**(-5), 100)
     ax.grid(True, ls='--')
-    ax.legend(fontsize=14)
+    ax.legend(fontsize=12)
 
     state["fig"].canvas.draw_idle()
     state["fig"].canvas.flush_events()
