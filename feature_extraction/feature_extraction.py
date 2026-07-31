@@ -6,7 +6,7 @@ from sklearn.preprocessing import StandardScaler
 # NOTE: PCA actually trains on len(window) - 1 rows (the last row is held
 # out as the test sample), so the effective training count is one less than
 # the window length. See reduce_window.
-MIN_TRAIN_ROWS = 10
+MIN_TRAIN_ROWS = 3
 
 
 def pca_fit(X_train, X_test):
@@ -81,7 +81,7 @@ def reduce_window(window, first_pca=None, first_scaler=None):
     X_test = X_clean[-1]
 
     # Fit PCA on current window
-    pca, scaler, X_test_s = pca_fit(X_train, X_test)
+    pca, X_test_s, scaler = pca_fit(X_train, X_test)
     short = pca_reconstruct(pca, X_test_s)
 
     reduced = {

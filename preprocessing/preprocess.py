@@ -17,8 +17,7 @@ def _cached_chunk_count(h5path):
 
     Parameters:
     - h5path: path to a finalized HDF5 file.
-
-    Returns:
+Returns:
     - int: number of chunks in the file.
     """
     if h5path not in _chunk_count_cache:
