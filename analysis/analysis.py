@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from calculations import get_metrics
+from analysis.calculations import get_metrics
 from analysis.utils import unpack
 
     
@@ -201,6 +201,13 @@ def live_figure_worst_bins(reduced_data, timestamp, n_top=5,
                                  "x": [],
                                  "residual_history_short": [],
                                  "residual_history_long": []}):
+    '''
+    Updates a live figure with two axes, showing the top n 
+    most anomalous bins in both the long term residual history 
+    and the short term residual history. These bins are consistent
+    with the bins shown on the PSD in live_figure_psd(). 
+    '''
+    
     # ---- Extract residuals + bin frequencies ----
     residual_short, bins_axis = unpack(reduced_data, ['residual','bins'])
 
@@ -409,6 +416,7 @@ def live_figure_psd(reduced_data, timestamp, n_top=5,
 
 def analyze(reduced_data, timestamp):
 
-    fig = live_figure_worst_bins(reduced_data, timestamp)
+    fig = live_figure_worst_bins(reduced_data, timestamp) # Create fig for saving
+    live_figure_psd(reduced_data, timestamp)
     
     return fig
