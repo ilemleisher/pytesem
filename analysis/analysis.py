@@ -4,124 +4,30 @@ import matplotlib.dates as mdates
 from analysis.calculations import get_metrics
 from analysis.utils import unpack
 
-    
-def get_worst_bins(reduced_data, n_top=5, residual_key="residual"):
-    residual = reduced_data[residual_key]
-    # "energy" in the standardized residual space
-    energies = np.square(residual)
-    top_bins = np.argsort(energies)[::-1][:n_top]
-    return top_bins
 
-
-def live_figure(reduced_data, timestamp,
-                 state={"fig": None, "axes": None, "start_time": None,
-                        "x": [], "series": {}, "residual_history": []}):
+def get_worst_bins(residual_or_reduced_data, n_top=3, residual_key="residual"):
     """
-    Update a single, persistent live figure combining summary stats, worst-bin
-    residual traces, and the current chunk's PSD.
-
-    Called once per full window. Left column: one subplot per summary metric
-    from get_metrics, plus one subplot showing the per-bin residual history
-    for the n_top currently-worst bins (all sharing a time x-axis). Right
-    column: PSD of the current chunk, with the n_top worst bins marked.
-
-    Parameters:
-    - reduced_data: dict from reduce_window, containing at least "residual",
-      "bins", and "asd", plus whatever get_metrics needs.
-    - timestamp: datetime of the chunk under test.
-    - n_top: number of worst bins to highlight/track.
-    - state: persistent accumulator, implemented as a mutable default
-      argument. Ties all calls in a process to one shared figure.
-
-    Returns:
-    - matplotlib.figure.Figure: the live figure, so the caller can save it.
+    Return the n_top bin indices whose residuals attain the largest
+    single abs(residual) value across all chunks in the input history.
     """
+    if isinstance(residual_or_reduced_data, dict):
+        residual = residual_or_reduced_data[residual_key]
+    else:
+        residual = residual_or_reduced_data
 
-    residual, bins, asd = unpack(reduced_data, ["residual", "bins", "asd"])
-    eval_metrics = get_metrics(reduced_data,"sum_stat")
-    top_bins = get_worst_bins(reduced_data)
+    residual = np.abs(np.asarray(residual))
 
-    if state["start_time"] is None:
-        state["start_time"] = timestamp
-    state["x"].append(timestamp)
-    for key, value in eval_metrics.items():
-        state["series"].setdefault(key, []).append(value)
-    state["residual_history"].append(residual)
+    if residual.ndim == 1:
+        values = np.nan_to_num(residual, nan=-np.inf)
+        return np.argsort(values)[::-1][:n_top]
 
-    residuals = np.array(state["residual_history"])
-    x = state["x"]
+    elif residual.ndim == 2:
+        max_per_bin = np.nanmax(residual, axis=0)
+        max_per_bin = np.nan_to_num(max_per_bin, nan=-np.inf)
+        return np.argsort(max_per_bin)[::-1][:n_top]
 
-    # --- Create the figure once ---
-    if state["fig"] is None:
-        plt.ion()
-        n_left = len(eval_metrics) + 1  # + 1 for worst-bins panel
-        fig = plt.figure(figsize=(14, 2.2 * n_left), constrained_layout=True)
-        gs = fig.add_gridspec(n_left, 2, width_ratios=[1.3, 1])
-
-        left_axes = [fig.add_subplot(gs[i, 0]) for i in range(n_left)]
-        for ax in left_axes[1:]:
-            ax.sharex(left_axes[0])
-
-        psd_ax = fig.add_subplot(gs[:, 1])
-
-        state["fig"] = fig
-        state["axes"] = {
-            "metrics": dict(zip(eval_metrics.keys(), left_axes[:-1])),
-            "worst_bins": left_axes[-1],
-            "psd": psd_ax,
-        }
-        state["fig"].show()
-
-    axes = state["axes"]
-    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-
-    # --- Summary metric subplots ---
-    for i, (key, y) in enumerate(state["series"].items()):
-        ax = axes["metrics"][key]
-        ax.clear()
-        ax.plot(x, y, color=colors[i % len(colors)], lw=1)
-        ax.set_ylabel(key.replace("_", " "), fontsize=9)
-        ax.grid(alpha=0.3)
-
-    # --- Worst-bins subplot ---
-    ax = axes["worst_bins"]
-    ax.clear()
-    for b in top_bins:
-        ax.plot(x, residuals[:, b], lw=2, label=f"Bin {b}")
-    ax.axhline(0, color="k", lw=0.5, alpha=0.5)
-    ax.set_ylabel("Standardized\nresidual", fontsize=9)
-    ax.legend(fontsize=7, ncol=n_top)
-    ax.grid(alpha=0.3)
-
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax.set_xlabel("Time (HH:MM)")
-
-    metric_keys = list(axes["metrics"].keys())
-    axes["metrics"][metric_keys[0]].set_title(
-        f"Summary metrics  (start {state['start_time']:%Y-%m-%d %H:%M:%S})")
-    state["fig"].autofmt_xdate()
-
-    # --- PSD subplot ---
-    psd_ax = axes["psd"]
-    psd_ax.clear()
-    psd_ax.loglog(bins, asd)
-    for i, b in enumerate(top_bins):
-        psd_ax.axvline(bins[b], color="red", alpha=0.5, lw=2,
-                        label="Problem Bins" if i == 0 else None)
-    psd_ax.set_title(f"PSD (chunk starting {timestamp:%H:%M:%S})")
-    psd_ax.set_xlabel("Frequency [Hz]", fontsize=12)
-    psd_ax.set_ylabel(r"[ADC/$\sqrt{\mathrm{Hz}}$]", fontsize=12)
-    psd_ax.set_xlim(0.01, 10**5)
-    psd_ax.set_ylim(10**(-5), 100)
-    psd_ax.grid(True, ls='--')
-    psd_ax.legend(fontsize=10)
-
-    state["fig"].canvas.draw_idle()
-    state["fig"].canvas.flush_events()
-    plt.pause(0.001)
-
-    return state["fig"]
+    else:
+        raise ValueError(f"residual must be 1D or 2D, got shape {residual.shape}")
 
 
 def live_figure_sum_stats(reduced_data, timestamp,
@@ -156,13 +62,12 @@ def live_figure_sum_stats(reduced_data, timestamp,
     for key, value in eval_metrics.items():
         state["series"].setdefault(key, []).append(value)
 
-    # --- Create the figure once, sized to however many metrics we got ---
     if state["fig"] is None:
         plt.ion()
         n = len(eval_metrics)
         fig, axes = plt.subplots(
             n, 1, figsize=(10, 2.2 * n), sharex=True, constrained_layout=True)
-        axes = np.atleast_1d(axes)  # so single-metric case still indexes cleanly
+        axes = np.atleast_1d(axes)
         state["fig"] = fig
         state["axes"] = dict(zip(eval_metrics.keys(), axes))
         state["fig"].show()
@@ -196,30 +101,67 @@ def live_figure_sum_stats(reduced_data, timestamp,
     return state["fig"]
 
 
-def live_figure_worst_bins(reduced_data, timestamp, n_top=5,
-                          state={"fig": None, "axes": None, "start_time": None,
-                                 "x": [],
-                                 "residual_history_short": [],
-                                 "residual_history_long": []}):
-    '''
-    Updates a live figure with two axes, showing the top n 
-    most anomalous bins in both the long term residual history 
-    and the short term residual history. These bins are consistent
-    with the bins shown on the PSD in live_figure_psd(). 
-    '''
-    
-    # ---- Extract residuals + bin frequencies ----
-    residual_short, bins_axis = unpack(reduced_data, ['residual','bins'])
+def _select_bins_above_threshold(residuals_hist_2d, threshold):
+    """
+    Select all bin indices whose peak residual across the stored history
+    has surpassed `threshold` at least once. `residuals_hist_2d` is
+    assumed to already be abs-valued. Returned indices are sorted by
+    peak residual, descending (purely for consistent legend ordering —
+    every qualifying bin is included, with no cap on count).
+    """
+    max_per_bin = np.nanmax(residuals_hist_2d, axis=0)
+    max_per_bin = np.nan_to_num(max_per_bin, nan=-np.inf)
+
+    candidate_mask = max_per_bin > threshold
+    if not np.any(candidate_mask):
+        return np.array([], dtype=int)
+
+    candidate_indices = np.where(candidate_mask)[0]
+    candidate_values = max_per_bin[candidate_indices]
+    order = np.argsort(candidate_values)[::-1]
+    return candidate_indices[order]
+
+
+def live_figure_worst_bins(
+    reduced_data, timestamp, threshold,
+    state=None
+):
+    """
+    Live 2-panel plot of residual history (short + long). Residuals are
+    always treated as abs(residual).
+
+    A bin's full residual history is plotted if and only if it has
+    exceeded `threshold` at some point in the accumulated history.
+    There is no cap on how many bins can qualify — every bin that has
+    ever crossed the threshold gets its own line.
+
+    Bin selection is computed from the full residual history so that
+    live_figure_psd() can mark the exact same bins (it simply reads the
+    selection back out of the shared state).
+
+    Parameters:
+    - threshold: float. Minimum residual a bin must reach at some point
+      in its history to be selected and plotted.
+    """
+
+    if state is None:
+        raise ValueError("state must be provided (shared with live_figure_psd).")
+    if threshold is None:
+        raise ValueError("threshold must be provided.")
+
+    # ---- Extract residuals + bin frequencies (always abs) ----
+    residual_short, bins_axis = unpack(reduced_data, ['residual', 'bins'])
+    residual_short = np.abs(residual_short)
 
     if "long_term_residual" in reduced_data:
-        residual_long = reduced_data["long_term_residual"]
+        residual_long = np.abs(reduced_data["long_term_residual"])
         has_long = True
     else:
         residual_long = np.full_like(residual_short, np.nan, dtype=float)
         has_long = False
 
-    # ---- Persistent state update ----
-    if state["start_time"] is None:
+    # ---- Persistent state init ----
+    if state.get("start_time", None) is None:
         state["start_time"] = timestamp
 
     state["x"].append(timestamp)
@@ -227,34 +169,36 @@ def live_figure_worst_bins(reduced_data, timestamp, n_top=5,
     state["residual_history_long"].append(residual_long)
 
     x = state["x"]
-    residuals_short = np.array(state["residual_history_short"])
-    residuals_long = np.array(state["residual_history_long"])
+    residuals_short = np.asarray(state["residual_history_short"])  # (T, n_bins)
+
+    # Compute bin selections from history (this is what PSD must match)
+    state["top_bins_short"] = _select_bins_above_threshold(residuals_short, threshold)
+
+    if has_long:
+        residuals_long = np.asarray(state["residual_history_long"])  # (T, n_bins)
+        state["top_bins_long"] = _select_bins_above_threshold(residuals_long, threshold)
+    else:
+        residuals_long = None
+        state["top_bins_long"] = np.array([], dtype=int)
+
+    top_bins_short = state["top_bins_short"]
+    top_bins_long = state["top_bins_long"]
 
     # ---- Create figure once ----
-    if state["fig"] is None:
+    if state["worst_fig"] is None:
         plt.ion()
         fig, (ax_short, ax_long) = plt.subplots(
             2, 1, figsize=(12, 8), sharex=True, constrained_layout=True
         )
-        state["fig"] = fig
-        state["axes"] = {"short": ax_short, "long": ax_long}
-        state["fig"].show()
+        state["worst_fig"] = fig
+        state["worst_axes"] = {"short": ax_short, "long": ax_long}
+        state["worst_fig"].show()
 
-    axes = state["axes"]
-    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-
-    # ---- Select worst bins for this update ----
-    top_bins_short = get_worst_bins(reduced_data, n_top=n_top, residual_key="residual")
-
-    top_bins_long = []
-    if has_long:
-        top_bins_long = get_worst_bins(
-            reduced_data, n_top=n_top, residual_key="long_term_residual"
-        )
+    axes = state["worst_axes"]
 
     def autoscale_from_bins(ax, residuals_all_times, bins):
         """Autoscale y based on the currently plotted bin histories; ignore NaNs."""
-        if len(bins) == 0:
+        if bins is None or len(bins) == 0:
             return
         vmin = np.inf
         vmax = -np.inf
@@ -273,8 +217,21 @@ def live_figure_worst_bins(reduced_data, timestamp, n_top=5,
             pad = max(abs(vmin) * 0.1, 1e-12)
             ax.set_ylim(vmin - pad, vmax + pad)
         else:
-            pad = (vmax - vmin) * 0.1  # 10% padding
+            pad = (vmax - vmin) * 0.1
             ax.set_ylim(vmin - pad, vmax + pad)
+
+    def _color_for_bin(b, n_bins, cmap_name="gist_rainbow"):
+        """
+        Deterministic, unique-ish color for a given bin index, based on its
+        position within the full range of bins (0..n_bins-1). Using a
+        continuous colormap instead of a fixed discrete cycle avoids color
+        collisions when the number of flagged bins exceeds the cycle length.
+        """
+        cmap = plt.colormaps.get_cmap(cmap_name)
+        denom = max(n_bins - 1, 1)
+        return cmap(b / denom)
+
+    threshold_note = f" (threshold={threshold:g})"
 
     # ----------------------
     # SHORT-term subplot
@@ -282,22 +239,24 @@ def live_figure_worst_bins(reduced_data, timestamp, n_top=5,
     ax = axes["short"]
     ax.clear()
 
-    for i, b in enumerate(top_bins_short):
-        freq = bins_axis[b]
-        ax.plot(
-            x, residuals_short[:, b],
-            lw=2, color=colors[i % len(colors)],
-            label=f"Bin {b} ({freq:.3g} Hz)"
-        )
+    if len(top_bins_short) > 0:
+        for i, b in enumerate(top_bins_short):
+            freq = bins_axis[b]
+            ax.plot(
+                x, residuals_short[:, b],
+                lw=2, color=_color_for_bin(b, len(bins_axis)),
+                label=f"{freq:.3g} Hz"
+            )
+        ax.legend(fontsize=4, ncol=max(1, len(top_bins_short)), loc="best")
+        title = f"{len(top_bins_short)} bins exceeded threshold (short-term)"
+    else:
+        title = f"No bins have exceeded threshold (short-term){threshold_note}"
 
     ax.axhline(0, color="k", lw=0.5, alpha=0.5)
-    ax.set_ylabel("Std residual\n(short-term)", fontsize=10)
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=8, ncol=max(1, n_top), loc="best")
-    ax.set_title(
-        f"Top {n_top} anomalous frequency bins (short-term) "
-        f"start {state['start_time']:%Y-%m-%d %H:%M:%S}"
-    )
+    ax.axhline(threshold, color="gray", lw=1, ls="--", alpha=0.7)
+    ax.set_ylabel("Abs residual\n(short-term)", fontsize=10)
+    ax.set_title(f"{title}{threshold_note if top_bins_short.size else ''} "
+                 f"start {state['start_time']:%Y-%m-%d %H:%M:%S}")
 
     autoscale_from_bins(ax, residuals_short, top_bins_short)
 
@@ -312,91 +271,94 @@ def live_figure_worst_bins(reduced_data, timestamp, n_top=5,
             freq = bins_axis[b]
             ax.plot(
                 x, residuals_long[:, b],
-                lw=2, color=colors[i % len(colors)],
-                label=f"Bin {b} ({freq:.3g} Hz)"
+                lw=2, color=_color_for_bin(b, len(bins_axis)),
+                label=f"{freq:.3g} Hz"
             )
-        ax.legend(fontsize=8, ncol=max(1, n_top), loc="best")
-        title = f"Top {n_top} anomalous frequency bins (long-term)"
+        ax.legend(fontsize=4, ncol=max(1, len(top_bins_long)), loc="best")
+        title = f"{len(top_bins_long)} bins exceeded threshold (long-term)"
+    elif has_long:
+        title = f"No bins have exceeded threshold (long-term){threshold_note}"
     else:
-        title = "Top anomaly bins (long-term) — waiting for first long-term model..."
+        title = "Anomaly bins (long-term) — waiting for first long-term model..."
 
     ax.axhline(0, color="k", lw=0.5, alpha=0.5)
-    ax.set_ylabel("Std residual\n(long-term)", fontsize=10)
-    ax.grid(alpha=0.3)
+    if has_long:
+        ax.axhline(threshold, color="gray", lw=1, ls="--", alpha=0.7)
+    ax.set_ylabel("Abs residual\n(long-term)", fontsize=10)
     ax.set_title(f"{title} start {state['start_time']:%Y-%m-%d %H:%M:%S}")
 
-    autoscale_from_bins(ax, residuals_long, top_bins_long)
+    if has_long:
+        autoscale_from_bins(ax, residuals_long, top_bins_long)
 
     # ---- Shared x-axis formatting ----
     axes["long"].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     axes["long"].xaxis.set_major_locator(mdates.AutoDateLocator())
     axes["long"].set_xlabel("Time (HH:MM)")
 
-    state["fig"].autofmt_xdate()
-    state["fig"].canvas.draw_idle()
-    state["fig"].canvas.flush_events()
+    if not state.get("did_autofmt_xdate", False):
+        state["worst_fig"].autofmt_xdate()
+        state["did_autofmt_xdate"] = True
+    state["worst_fig"].canvas.draw_idle()
+    state["worst_fig"].canvas.flush_events()
     plt.pause(0.001)
 
-    return state["fig"]
+    return state["worst_fig"]
 
 
-def live_figure_psd(reduced_data, timestamp, n_top=5,
-                     state={"fig": None, "ax": None}):
+def live_figure_psd(
+    reduced_data, timestamp,
+    state=None
+):
     """
-    Update a live, persistent plot of the PSD for the current chunk.
+    PSD plot with marker lines.
 
-    Marks BOTH:
-      - top-n short-term anomalous bins (red) using residual
-      - top-n long-term anomalous bins (blue) using long_term_residual (if available)
+    Uses the exact bin indices selected by live_figure_worst_bins (stored
+    in state). Since live_figure_worst_bins only keeps bins whose residual
+    history has crossed the configured threshold, the markers drawn here
+    automatically reflect the same threshold-filtered bins — no separate
+    threshold logic is needed in this function.
     """
+
+    if state is None:
+        raise ValueError("state must be provided (shared with live_figure_worst_bins).")
 
     bins, asd = unpack(reduced_data, ["bins", "asd"])
 
-    # Short-term top bins
-    top_bins_short = get_worst_bins(
-        reduced_data, n_top=n_top, residual_key="residual"
-    )
+    # Read the *already computed* bin selections
+    top_bins_short = state.get("top_bins_short", [])
+    top_bins_long = state.get("top_bins_long", [])
 
-    # Long-term top bins (optional)
-    has_long = "long_term_residual" in reduced_data
-    top_bins_long = []
-    if has_long:
-        top_bins_long = get_worst_bins(
-            reduced_data, n_top=n_top, residual_key="long_term_residual"
-        )
-
-    if state["fig"] is None:
+    if state["psd_fig"] is None:
         plt.ion()
-        state["fig"], state["ax"] = plt.subplots(1, 1, figsize=(7, 7))
-        state["fig"].show()
+        state["psd_fig"], state["psd_ax"] = plt.subplots(1, 1, figsize=(7, 7))
+        state["psd_fig"].show()
 
-    ax = state["ax"]
+    ax = state["psd_ax"]
     ax.clear()
 
-    ax.loglog(bins, asd)
+    # IMPORTANT: your reduce_window stores "asd" as log10(ASD)
+    ax.loglog(bins, 10 ** asd, color='green')
 
     short_color = "red"
     long_color = "blue"
 
-    # Plot short-term marker lines
     for i, b in enumerate(top_bins_short):
         ax.axvline(
             bins[b],
             color=short_color,
-            alpha=0.6,
-            lw=2.5,
-            label="Short-term top bins" if i == 0 else None
+            alpha=0.3,
+            lw=2,
+            label="Short-term flagged bins" if i == 0 else None
         )
 
-    # Plot long-term marker lines (if available)
-    if has_long:
+    if top_bins_long is not None and len(top_bins_long) > 0:
         for i, b in enumerate(top_bins_long):
             ax.axvline(
                 bins[b],
                 color=long_color,
                 alpha=0.6,
                 lw=2.5,
-                label="Long-term top bins" if i == 0 else None
+                label="Long-term flagged bins" if i == 0 else None
             )
 
     ax.set_title(f"PSD ({timestamp:%H:%M:%S})")
@@ -407,16 +369,40 @@ def live_figure_psd(reduced_data, timestamp, n_top=5,
     ax.grid(True, ls='--')
     ax.legend(fontsize=12)
 
-    state["fig"].canvas.draw_idle()
-    state["fig"].canvas.flush_events()
+    state["psd_fig"].canvas.draw_idle()
+    state["psd_fig"].canvas.flush_events()
     plt.pause(0.001)
 
-    return state["fig"]
+    return state["psd_fig"]
 
 
-def analyze(reduced_data, timestamp):
+def analyze(reduced_data, timestamp, threshold):
+    # Shared state object so both live figures use identical bin selection.
+    # (Persistent across repeated calls to analyze)
+    if not hasattr(analyze, "_shared_state"):
+        analyze._shared_state = {
+            "worst_fig": None,
+            "worst_axes": None,
 
-    fig = live_figure_worst_bins(reduced_data, timestamp) # Create fig for saving
-    live_figure_psd(reduced_data, timestamp)
-    
-    return fig
+            "psd_fig": None,
+            "psd_ax": None,
+
+            "start_time": None,
+            "x": [],
+            "residual_history_short": [],
+            "residual_history_long": [],
+
+            "top_bins_short": np.array([], dtype=int),
+            "top_bins_long": np.array([], dtype=int),
+
+            "did_autofmt_xdate": False,
+        }
+
+    shared_state = analyze._shared_state
+
+    fig1 = live_figure_worst_bins(
+        reduced_data, timestamp, threshold, state=shared_state
+    )
+    fig2 = live_figure_psd(reduced_data, timestamp, state=shared_state)
+
+    return fig1, fig2

@@ -119,7 +119,7 @@ def main():
                         # -------------------                     
                         # Produce/update the live figure from the reduced data.
                         # Returns a matplotlib Figure we hold onto for final save.
-                        fig = analyze(reduced_data, timestamp)
+                        fig = analyze(reduced_data, timestamp, threshold=15)
 
         # If the DAQ has exited, the scan we just completed already covered
         # every finalized chunk (nothing is "open" anymore), so we're done.
