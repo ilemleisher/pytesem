@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 CHUNK_POLL_SEC = 2
 # Number of consecutive chunks held in the sliding window. Analysis only
 # runs once this many chunks have accumulated, and thereafter on a rolling basis.
-WINDOW_SIZE = 5
+WINDOW_SIZE = 60
 
 
 def parse_args():
@@ -21,6 +21,8 @@ def parse_args():
     parser.add_argument('--downsample_factor', type=int, default=10, help='Downsample reduction factor.')
     parser.add_argument('--sampling_rate', type=float, default=1.25e6, help='Sampling rate of the raw data in Hz.')
     parser.add_argument('--channel_number', type=int, default=0, help='Channel number to read from the raw data file (0-indexed).')
+    parser.add_argument('--threshold_low', type=float, default=2.0, help='Lower threshold for bin selection.')
+    parser.add_argument('--threshold_high', type=float, default=3.0, help='Upper threshold for bin selection.')
     return parser.parse_args()
 
 
@@ -35,6 +37,8 @@ def main():
     sampling_rate = args.sampling_rate
     channel_number = args.channel_number
     downsample_factor = args.downsample_factor
+    threshold_low = args.threshold_low
+    threshold_high = args.threshold_high
 
     # Sliding window of the most recent WINDOW_SIZE processed chunks.
     # deque(maxlen=...) auto-evicts the oldest entry once full, so the
@@ -119,7 +123,7 @@ def main():
                         # -------------------                     
                         # Produce/update the live figure from the reduced data.
                         # Returns a matplotlib Figure we hold onto for final save.
-                        fig = analyze(reduced_data, timestamp, threshold=15)
+                        fig, fig2 = analyze(reduced_data, timestamp, threshold_low=threshold_low, threshold_high=threshold_high)
 
         # If the DAQ has exited, the scan we just completed already covered
         # every finalized chunk (nothing is "open" anymore), so we're done.
@@ -136,7 +140,7 @@ def main():
         plt.ioff()
 
         figs_to_save = [
-            (fig, "fig_final.png")
+            (fig, "live_bins_final.png")
         ]
 
         for fig, filename in figs_to_save:

@@ -3,21 +3,23 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 # Minimum number of rows required in the window before PCA is attempted.
+# This is separate from the window size.
 # NOTE: PCA actually trains on len(window) - 1 rows (the last row is held
 # out as the test sample), so the effective training count is one less than
 # the window length. See reduce_window.
-MIN_TRAIN_ROWS = 3
+MIN_TRAIN_ROWS = 15
 
 
 def pca_fit(X_train, X_test):
-
-    # Standardize using training stats only; the scaler is never fit on X_test.
-    scaler = StandardScaler().fit(X_train)
-    X_test = X_test.reshape(1, -1)               # PCA/scaler expect 2D input
+    # Mean-center only (no std-division). Residuals stay in log10(ASD)
+    # units, so they're directly interpretable as fractional amplitude
+    # deviations, e.g. a residual of 0.3 ~ roughly a factor of 2 (10**0.3),
+    # and 1.0 ~ a factor of 10 — no per-bin variance normalization needed.
+    scaler = StandardScaler(with_std=False).fit(X_train)
+    X_test = X_test.reshape(1, -1)
     X_train_s = scaler.transform(X_train)
     X_test_s = scaler.transform(X_test)
 
-    # Retain enough components to explain 99% of training variance.
     pca = PCA(n_components=0.99, svd_solver="full")
     pca.fit(X_train_s)
 
@@ -25,19 +27,11 @@ def pca_fit(X_train, X_test):
 
 
 def pca_reconstruct(pca, X_test_s):
-
-    # Project the test spectrum into the PCA subspace and reconstruct it.
     Z = pca.transform(X_test_s)
     Xhat_s = pca.inverse_transform(Z)
-
-    # Residual in standardized space: what the PCA model failed to capture.
     residual = (X_test_s - Xhat_s).reshape(-1)
 
-    reduced_data = {
-        "residual": residual
-    }
-
-    return reduced_data
+    return {"residual": residual}
 
 
 def reduce_window(window, first_pca=None, first_scaler=None):
@@ -46,17 +40,24 @@ def reduce_window(window, first_pca=None, first_scaler=None):
 
     Treats the oldest chunks in the window as the training set and the most
     recent chunk as the test sample. Stacks the per-chunk ASDs, converts to
-    log space, and hands off to pca(). The frequency axis (bins) is carried
+    log space, and hands off to PCA. The frequency axis (bins) is carried
     through into the result so downstream saving/plotting can align the
-    residual and components to real frequencies.
+    residual to real frequencies.
+
+    Residuals are reported directly in log10(ASD) units (dex) rather than
+    as standardized z-scores: PCA is fit on mean-centered (not variance-
+    scaled) log-ASD, so the reconstruction residual itself is already a
+    fractional-amplitude-deviation measure, comparable across bins without
+    a separate per-bin variance normalization.
 
     Parameters:
     - window: sequence of chunk dicts, each with keys "bins" and "asd"
               (as produced by process_chunk). Length must be >= MIN_TRAIN_ROWS.
 
     Returns:
-    - dict: the pca() result, additionally containing "bins" (1D frequency
-      axis). All values are numpy arrays, suitable for np.savez(**result).
+    - dict: containing "residual", "bins" (1D frequency axis), "asd", and
+      (if a long-term model is supplied) "long_term_residual". All values
+      are numpy arrays, suitable for np.savez(**result).
 
     Raises:
     - ValueError: if the window has fewer than MIN_TRAIN_ROWS entries.
@@ -93,6 +94,7 @@ def reduce_window(window, first_pca=None, first_scaler=None):
 
     if first_pca is not None and first_scaler is not None:
         X_test_s_long = first_scaler.transform(X_test.reshape(1, -1))
-        reduced["long_term_residual"] = pca_reconstruct(first_pca, X_test_s_long)["residual"]
+        long_term = pca_reconstruct(first_pca, X_test_s_long)
+        reduced["long_term_residual"] = long_term["residual"]
 
     return reduced, pca, scaler

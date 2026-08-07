@@ -51,3 +51,6 @@ wait "$DAQ_PID" || true
 echo "DAQ finished. Waiting for main to drain..."
 wait "$NAQ_PID" || true
 echo "Done."
+
+# --- post-run analysis ---
+python post_run_analysis.py --output_dir "$OUTPUT_DIR"
