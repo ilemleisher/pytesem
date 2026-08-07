@@ -23,6 +23,7 @@ def pca_fit(X_train, X_test):
 
     return pca, X_test_s, scaler
 
+
 def pca_reconstruct(pca, X_test_s):
 
     # Project the test spectrum into the PCA subspace and reconstruct it.

@@ -101,53 +101,146 @@ def live_figure_sum_stats(reduced_data, timestamp,
     return state["fig"]
 
 
-def _select_bins_above_threshold(residuals_hist_2d, threshold):
+def _select_bins_above_threshold(residuals_hist_2d, threshold, bin_mask=None, max_bins=5):
     """
-    Select all bin indices whose peak residual across the stored history
-    has surpassed `threshold` at least once. `residuals_hist_2d` is
-    assumed to already be abs-valued. Returned indices are sorted by
-    peak residual, descending (purely for consistent legend ordering —
-    every qualifying bin is included, with no cap on count).
+    Select up to max_bins bin indices (restricted to bin_mask, if given)
+    whose peak residual across the stored history has surpassed
+    `threshold` at least once. `residuals_hist_2d` is assumed to already
+    be abs-valued. Returned indices are sorted by peak residual,
+    descending (both for legend ordering and so truncation to max_bins
+    keeps the most severe offenders).
+
+    Parameters:
+    - bin_mask: boolean array of length n_bins restricting the candidate
+      pool (e.g. to a frequency band). If None, all bins are eligible.
+    - max_bins: hard cap on how many bins are returned, regardless of
+      how many exceed threshold.
     """
+    n_bins = residuals_hist_2d.shape[1]
+    if bin_mask is None:
+        bin_mask = np.ones(n_bins, dtype=bool)
+
     max_per_bin = np.nanmax(residuals_hist_2d, axis=0)
     max_per_bin = np.nan_to_num(max_per_bin, nan=-np.inf)
 
-    candidate_mask = max_per_bin > threshold
+    candidate_mask = (max_per_bin > threshold) & bin_mask
     if not np.any(candidate_mask):
         return np.array([], dtype=int)
 
     candidate_indices = np.where(candidate_mask)[0]
     candidate_values = max_per_bin[candidate_indices]
     order = np.argsort(candidate_values)[::-1]
-    return candidate_indices[order]
+    return candidate_indices[order][:max_bins]
+
+
+def _autoscale_from_bins(ax, residuals_all_times, bins):
+    """Autoscale y based on the currently plotted bin histories; ignore NaNs."""
+    if bins is None or len(bins) == 0:
+        return
+    vmin = np.inf
+    vmax = -np.inf
+    for b in bins:
+        y = residuals_all_times[:, b]
+        y = y[np.isfinite(y)]
+        if y.size == 0:
+            continue
+        vmin = min(vmin, float(y.min()))
+        vmax = max(vmax, float(y.max()))
+
+    if not np.isfinite(vmin) or not np.isfinite(vmax):
+        return
+
+    if vmin == vmax:
+        pad = max(abs(vmin) * 0.1, 1e-12)
+        ax.set_ylim(vmin - pad, vmax + pad)
+    else:
+        pad = (vmax - vmin) * 0.1
+        ax.set_ylim(vmin - pad, vmax + pad)
+
+
+def _color_for_bin(b, n_bins, cmap_name="gist_rainbow"):
+    """
+    Deterministic, unique-ish color for a given bin index, based on its
+    position within the full range of bins (0..n_bins-1). Using a
+    continuous colormap instead of a fixed discrete cycle avoids color
+    collisions when the number of flagged bins exceeds the cycle length.
+    """
+    cmap = plt.colormaps.get_cmap(cmap_name)
+    denom = max(n_bins - 1, 1)
+    return cmap(b / denom)
+
+
+def _plot_residual_panel(ax, x, hist_2d, top_bins, threshold, bins_axis,
+                          term_label, band_label, length, active=True):
+    """
+    Draw one (term x band) panel of the worst-bins figure: a residual
+    history line per flagged bin, capped at len(top_bins) <= max_bins.
+
+    Parameters:
+    - active: False means "no data available yet" (e.g. long-term before
+      the first model is frozen) rather than "data available but nothing
+      crossed threshold" — these get different titles.
+    """
+    ax.clear()
+    if active and len(top_bins) > 0:
+        for b in top_bins:
+            freq = bins_axis[b]
+            ax.plot(
+                x, hist_2d[:, b],
+                lw=2, color=_color_for_bin(b, length),
+                label=f"{freq:.3g} Hz"
+            )
+        ax.legend(fontsize=8, ncol=max(1, len(top_bins)), loc="best")
+        title = f"{len(top_bins)} bin(s) exceeded threshold"
+    elif active:
+        title = "No bins have exceeded threshold"
+    else:
+        title = "Waiting for first long-term model..."
+
+    ax.axhline(0, color="k", lw=0.5, alpha=0.5)
+    if active:
+        ax.axhline(threshold, color="gray", lw=1, ls="--", alpha=0.7)
+        ax.set_title(f"{term_label}, {band_label} — {title} "
+                     f"(threshold={threshold:g})", fontsize=9)
+        _autoscale_from_bins(ax, hist_2d, top_bins)
+    else:
+        ax.set_title(f"{term_label}, {band_label} — {title}", fontsize=9)
+
+    ax.set_ylabel(f"Abs residual\n({term_label})", fontsize=9)
 
 
 def live_figure_worst_bins(
-    reduced_data, timestamp, threshold,
+    reduced_data, timestamp, threshold_low, threshold_high,
+    freq_cutoff=1000.0, max_bins=5,
     state=None
 ):
     """
-    Live 2-panel plot of residual history (short + long). Residuals are
-    always treated as abs(residual).
+    Live 2x2 grid of residual history: rows are short-term / long-term,
+    columns are low-frequency (< freq_cutoff) / high-frequency
+    (>= freq_cutoff). Residuals are always treated as abs(residual).
 
-    A bin's full residual history is plotted if and only if it has
-    exceeded `threshold` at some point in the accumulated history.
-    There is no cap on how many bins can qualify — every bin that has
-    ever crossed the threshold gets its own line.
+    Each column has its own threshold, since "interesting" residual
+    magnitudes can differ substantially between low- and high-frequency
+    bins. Each panel plots at most `max_bins` bins — the ones with the
+    largest peak residual in that band's history — even if more bins
+    have crossed threshold.
 
     Bin selection is computed from the full residual history so that
     live_figure_psd() can mark the exact same bins (it simply reads the
     selection back out of the shared state).
 
     Parameters:
-    - threshold: float. Minimum residual a bin must reach at some point
-      in its history to be selected and plotted.
+    - threshold_low: float. Threshold (in residual units) for bins below
+      freq_cutoff.
+    - threshold_high: float. Threshold for bins at/above freq_cutoff.
+    - freq_cutoff: float. Frequency (Hz) separating the low/high bands.
+    - max_bins: int. Max number of bins plotted/legended per panel.
     """
 
     if state is None:
         raise ValueError("state must be provided (shared with live_figure_psd).")
-    if threshold is None:
-        raise ValueError("threshold must be provided.")
+    if threshold_low is None or threshold_high is None:
+        raise ValueError("threshold_low and threshold_high must be provided.")
 
     # ---- Extract residuals + bin frequencies (always abs) ----
     residual_short, bins_axis = unpack(reduced_data, ['residual', 'bins'])
@@ -170,130 +263,72 @@ def live_figure_worst_bins(
 
     x = state["x"]
     residuals_short = np.asarray(state["residual_history_short"])  # (T, n_bins)
+    residuals_long = np.asarray(state["residual_history_long"])    # (T, n_bins)
+
+    low_mask = bins_axis < freq_cutoff
+    high_mask = ~low_mask
 
     # Compute bin selections from history (this is what PSD must match)
-    state["top_bins_short"] = _select_bins_above_threshold(residuals_short, threshold)
+    state["top_bins_short_low"] = _select_bins_above_threshold(
+        residuals_short, threshold_low, bin_mask=low_mask, max_bins=max_bins)
+    state["top_bins_short_high"] = _select_bins_above_threshold(
+        residuals_short, threshold_high, bin_mask=high_mask, max_bins=max_bins)
 
     if has_long:
-        residuals_long = np.asarray(state["residual_history_long"])  # (T, n_bins)
-        state["top_bins_long"] = _select_bins_above_threshold(residuals_long, threshold)
+        state["top_bins_long_low"] = _select_bins_above_threshold(
+            residuals_long, threshold_low, bin_mask=low_mask, max_bins=max_bins)
+        state["top_bins_long_high"] = _select_bins_above_threshold(
+            residuals_long, threshold_high, bin_mask=high_mask, max_bins=max_bins)
     else:
-        residuals_long = None
-        state["top_bins_long"] = np.array([], dtype=int)
+        state["top_bins_long_low"] = np.array([], dtype=int)
+        state["top_bins_long_high"] = np.array([], dtype=int)
 
-    top_bins_short = state["top_bins_short"]
-    top_bins_long = state["top_bins_long"]
-
-    # ---- Create figure once ----
+    # ---- Create figure once (2x2 grid) ----
     if state["worst_fig"] is None:
         plt.ion()
-        fig, (ax_short, ax_long) = plt.subplots(
-            2, 1, figsize=(12, 8), sharex=True, constrained_layout=True
+        fig, axarr = plt.subplots(
+            2, 2, figsize=(16, 9), sharex=True, constrained_layout=True
         )
         state["worst_fig"] = fig
-        state["worst_axes"] = {"short": ax_short, "long": ax_long}
+        state["worst_axes"] = {
+            "short_low": axarr[0, 0],
+            "short_high": axarr[0, 1],
+            "long_low": axarr[1, 0],
+            "long_high": axarr[1, 1],
+        }
         state["worst_fig"].show()
 
     axes = state["worst_axes"]
+    low_label = f"< {freq_cutoff:g} Hz"
+    high_label = f"\u2265 {freq_cutoff:g} Hz"
+    
+    _plot_residual_panel(
+        axes["short_low"], x, residuals_short, state["top_bins_short_low"],
+        threshold_low, bins_axis, "short-term", low_label, length=len(np.where(low_mask == True)[0]), active=True
+    )
+    _plot_residual_panel(
+        axes["short_high"], x, residuals_short, state["top_bins_short_high"],
+        threshold_high, bins_axis, "short-term", high_label, length=len(np.where(high_mask == True)[0]), active=True
+    )
+    _plot_residual_panel(
+        axes["long_low"], x, residuals_long, state["top_bins_long_low"],
+        threshold_low, bins_axis, "long-term", low_label, length=len(np.where(low_mask == True)[0]), active=has_long
+    )
+    _plot_residual_panel(
+        axes["long_high"], x, residuals_long, state["top_bins_long_high"],
+        threshold_high, bins_axis, "long-term", high_label, length=len(np.where(high_mask == True)[0]), active=has_long
+    )
 
-    def autoscale_from_bins(ax, residuals_all_times, bins):
-        """Autoscale y based on the currently plotted bin histories; ignore NaNs."""
-        if bins is None or len(bins) == 0:
-            return
-        vmin = np.inf
-        vmax = -np.inf
-        for b in bins:
-            y = residuals_all_times[:, b]
-            y = y[np.isfinite(y)]
-            if y.size == 0:
-                continue
-            vmin = min(vmin, float(y.min()))
-            vmax = max(vmax, float(y.max()))
+    # ---- Shared x-axis formatting (bottom row) ----
+    for key in ("long_low", "long_high"):
+        axes[key].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+        axes[key].xaxis.set_major_locator(mdates.AutoDateLocator())
+        axes[key].set_xlabel("Time (HH:MM)")
 
-        if not np.isfinite(vmin) or not np.isfinite(vmax):
-            return
-
-        if vmin == vmax:
-            pad = max(abs(vmin) * 0.1, 1e-12)
-            ax.set_ylim(vmin - pad, vmax + pad)
-        else:
-            pad = (vmax - vmin) * 0.1
-            ax.set_ylim(vmin - pad, vmax + pad)
-
-    def _color_for_bin(b, n_bins, cmap_name="gist_rainbow"):
-        """
-        Deterministic, unique-ish color for a given bin index, based on its
-        position within the full range of bins (0..n_bins-1). Using a
-        continuous colormap instead of a fixed discrete cycle avoids color
-        collisions when the number of flagged bins exceeds the cycle length.
-        """
-        cmap = plt.colormaps.get_cmap(cmap_name)
-        denom = max(n_bins - 1, 1)
-        return cmap(b / denom)
-
-    threshold_note = f" (threshold={threshold:g})"
-
-    # ----------------------
-    # SHORT-term subplot
-    # ----------------------
-    ax = axes["short"]
-    ax.clear()
-
-    if len(top_bins_short) > 0:
-        for i, b in enumerate(top_bins_short):
-            freq = bins_axis[b]
-            ax.plot(
-                x, residuals_short[:, b],
-                lw=2, color=_color_for_bin(b, len(bins_axis)),
-                label=f"{freq:.3g} Hz"
-            )
-        ax.legend(fontsize=4, ncol=max(1, len(top_bins_short)), loc="best")
-        title = f"{len(top_bins_short)} bins exceeded threshold (short-term)"
-    else:
-        title = f"No bins have exceeded threshold (short-term){threshold_note}"
-
-    ax.axhline(0, color="k", lw=0.5, alpha=0.5)
-    ax.axhline(threshold, color="gray", lw=1, ls="--", alpha=0.7)
-    ax.set_ylabel("Abs residual\n(short-term)", fontsize=10)
-    ax.set_title(f"{title}{threshold_note if top_bins_short.size else ''} "
-                 f"start {state['start_time']:%Y-%m-%d %H:%M:%S}")
-
-    autoscale_from_bins(ax, residuals_short, top_bins_short)
-
-    # ----------------------
-    # LONG-term subplot
-    # ----------------------
-    ax = axes["long"]
-    ax.clear()
-
-    if has_long and len(top_bins_long) > 0:
-        for i, b in enumerate(top_bins_long):
-            freq = bins_axis[b]
-            ax.plot(
-                x, residuals_long[:, b],
-                lw=2, color=_color_for_bin(b, len(bins_axis)),
-                label=f"{freq:.3g} Hz"
-            )
-        ax.legend(fontsize=4, ncol=max(1, len(top_bins_long)), loc="best")
-        title = f"{len(top_bins_long)} bins exceeded threshold (long-term)"
-    elif has_long:
-        title = f"No bins have exceeded threshold (long-term){threshold_note}"
-    else:
-        title = "Anomaly bins (long-term) — waiting for first long-term model..."
-
-    ax.axhline(0, color="k", lw=0.5, alpha=0.5)
-    if has_long:
-        ax.axhline(threshold, color="gray", lw=1, ls="--", alpha=0.7)
-    ax.set_ylabel("Abs residual\n(long-term)", fontsize=10)
-    ax.set_title(f"{title} start {state['start_time']:%Y-%m-%d %H:%M:%S}")
-
-    if has_long:
-        autoscale_from_bins(ax, residuals_long, top_bins_long)
-
-    # ---- Shared x-axis formatting ----
-    axes["long"].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    axes["long"].xaxis.set_major_locator(mdates.AutoDateLocator())
-    axes["long"].set_xlabel("Time (HH:MM)")
+    state["worst_fig"].suptitle(
+        f"PCA sliding-window residual anomalies "
+        f"(start {state['start_time']:%Y-%m-%d %H:%M:%S})"
+    )
 
     if not state.get("did_autofmt_xdate", False):
         state["worst_fig"].autofmt_xdate()
@@ -313,10 +348,11 @@ def live_figure_psd(
     PSD plot with marker lines.
 
     Uses the exact bin indices selected by live_figure_worst_bins (stored
-    in state). Since live_figure_worst_bins only keeps bins whose residual
-    history has crossed the configured threshold, the markers drawn here
-    automatically reflect the same threshold-filtered bins — no separate
-    threshold logic is needed in this function.
+    in state), across all four bands (short/long x low/high). Since
+    live_figure_worst_bins only keeps bins whose residual history has
+    crossed its band's threshold (capped at max_bins per band), the
+    markers drawn here automatically reflect the same set — no separate
+    threshold or frequency-band logic is needed in this function.
     """
 
     if state is None:
@@ -324,9 +360,15 @@ def live_figure_psd(
 
     bins, asd = unpack(reduced_data, ["bins", "asd"])
 
-    # Read the *already computed* bin selections
-    top_bins_short = state.get("top_bins_short", [])
-    top_bins_long = state.get("top_bins_long", [])
+    # Read the *already computed* bin selections, merging low+high bands.
+    top_bins_short = np.concatenate([
+        np.asarray(state.get("top_bins_short_low", []), dtype=int),
+        np.asarray(state.get("top_bins_short_high", []), dtype=int),
+    ])
+    top_bins_long = np.concatenate([
+        np.asarray(state.get("top_bins_long_low", []), dtype=int),
+        np.asarray(state.get("top_bins_long_high", []), dtype=int),
+    ])
 
     if state["psd_fig"] is None:
         plt.ion()
@@ -346,20 +388,25 @@ def live_figure_psd(
         ax.axvline(
             bins[b],
             color=short_color,
-            alpha=0.3,
+            alpha=0.6,
             lw=2,
-            label="Short-term flagged bins" if i == 0 else None
+            ls="-",
+            ymin=0.0, ymax=0.1,   # bottom fifth of the axis
+            label="Short-term flagged bins" if i == 0 else None,
+            zorder=2,
         )
 
-    if top_bins_long is not None and len(top_bins_long) > 0:
-        for i, b in enumerate(top_bins_long):
-            ax.axvline(
-                bins[b],
-                color=long_color,
-                alpha=0.6,
-                lw=2.5,
-                label="Long-term flagged bins" if i == 0 else None
-            )
+    for i, b in enumerate(top_bins_long):
+        ax.axvline(
+            bins[b],
+            color=long_color,
+            alpha=0.6,
+            lw=2,
+            ls="-",
+            ymin=0.9, ymax=1.0,   # top fifth of the axis
+            label="Long-term flagged bins" if i == 0 else None,
+            zorder=3,
+        )
 
     ax.set_title(f"PSD ({timestamp:%H:%M:%S})")
     ax.set_xlabel("Frequency [Hz]", fontsize=14)
@@ -376,7 +423,15 @@ def live_figure_psd(
     return state["psd_fig"]
 
 
-def analyze(reduced_data, timestamp, threshold):
+def analyze(reduced_data, timestamp, threshold_low, threshold_high,
+            freq_cutoff=1000.0, max_bins=5):
+    """
+    Parameters:
+    - threshold_low: residual threshold for bins below freq_cutoff.
+    - threshold_high: residual threshold for bins at/above freq_cutoff.
+    - freq_cutoff: frequency (Hz) separating the low/high bands.
+    - max_bins: max number of bins plotted per band, per term.
+    """
     # Shared state object so both live figures use identical bin selection.
     # (Persistent across repeated calls to analyze)
     if not hasattr(analyze, "_shared_state"):
@@ -392,8 +447,10 @@ def analyze(reduced_data, timestamp, threshold):
             "residual_history_short": [],
             "residual_history_long": [],
 
-            "top_bins_short": np.array([], dtype=int),
-            "top_bins_long": np.array([], dtype=int),
+            "top_bins_short_low": np.array([], dtype=int),
+            "top_bins_short_high": np.array([], dtype=int),
+            "top_bins_long_low": np.array([], dtype=int),
+            "top_bins_long_high": np.array([], dtype=int),
 
             "did_autofmt_xdate": False,
         }
@@ -401,7 +458,8 @@ def analyze(reduced_data, timestamp, threshold):
     shared_state = analyze._shared_state
 
     fig1 = live_figure_worst_bins(
-        reduced_data, timestamp, threshold, state=shared_state
+        reduced_data, timestamp, threshold_low, threshold_high,
+        freq_cutoff=freq_cutoff, max_bins=max_bins, state=shared_state
     )
     fig2 = live_figure_psd(reduced_data, timestamp, state=shared_state)
 
