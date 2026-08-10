@@ -1,9 +1,19 @@
+"""
+PCA-based dimensionality reduction for sliding windows of preprocessed
+noise spectra.
+
+Fits a PCA model on the older chunks in a window (log10-ASD, mean-centered
+only), reconstructs the newest chunk from that model, and reports the
+reconstruction residual as the anomaly signal. Optionally also scores the
+newest chunk against a "first" (long-term reference) PCA model fit earlier
+in the run.
+"""
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 # Minimum number of rows required in the window before PCA is attempted.
-# This is separate from the window size.
+# This is separate from the window size; just a fail-safe.
 # NOTE: PCA actually trains on len(window) - 1 rows (the last row is held
 # out as the test sample), so the effective training count is one less than
 # the window length. See reduce_window.
@@ -11,6 +21,20 @@ MIN_TRAIN_ROWS = 15
 
 
 def pca_fit(X_train, X_test):
+    """
+    Mean-center the training/test rows and fit a PCA model on the training set.
+
+    Parameters:
+    - X_train: (n_train, n_bins) array of log10-ASD rows used to fit PCA.
+    - X_test: (n_bins,) array, the single row to be reconstructed later.
+
+    Returns:
+    - pca: fitted sklearn PCA object, retaining components covering 99%
+      of the training variance.
+    - X_test_s: (1, n_bins) mean-centered test row.
+    - scaler: fitted StandardScaler (mean-only) used for the centering,
+      returned so the same centering can be reapplied to other test rows.
+    """
     # Mean-center only (no std-division). Residuals stay in log10(ASD)
     # units, so they're directly interpretable as fractional amplitude
     # deviations, e.g. a residual of 0.3 ~ roughly a factor of 2 (10**0.3),
@@ -20,6 +44,7 @@ def pca_fit(X_train, X_test):
     X_train_s = scaler.transform(X_train)
     X_test_s = scaler.transform(X_test)
 
+    # Keep enough principal components to explain 99% of training variance.
     pca = PCA(n_components=0.99, svd_solver="full")
     pca.fit(X_train_s)
 
@@ -27,8 +52,24 @@ def pca_fit(X_train, X_test):
 
 
 def pca_reconstruct(pca, X_test_s):
+    """
+    Project a mean-centered test row into PCA space and back out, then
+    compute the reconstruction residual.
+
+    Parameters:
+    - pca: fitted PCA object.
+    - X_test_s: (1, n_bins) mean-centered test row to reconstruct.
+
+    Returns:
+    - dict with key "residual": (n_bins,) array, the per-bin difference
+      between the original and PCA-reconstructed test row (in log10-ASD
+      units / dex).
+    """
+    # Forward projection (encode) then inverse projection (decode).
     Z = pca.transform(X_test_s)
     Xhat_s = pca.inverse_transform(Z)
+    # Residual = what PCA couldn't explain from the training set's
+    # dominant modes; large values indicate a bin behaving anomalously.
     residual = (X_test_s - Xhat_s).reshape(-1)
 
     return {"residual": residual}
@@ -92,6 +133,10 @@ def reduce_window(window, first_pca=None, first_scaler=None):
         "asd": X_test,
     }
 
+    # If a long-term reference model has been established, also score the
+    # newest chunk against it (using its own frozen centering), so drift
+    # relative to the start of the run can be tracked alongside short-term
+    # window-to-window anomalies.
     if first_pca is not None and first_scaler is not None:
         X_test_s_long = first_scaler.transform(X_test.reshape(1, -1))
         long_term = pca_reconstruct(first_pca, X_test_s_long)

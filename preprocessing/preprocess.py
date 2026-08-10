@@ -1,9 +1,21 @@
+"""
+Chunk-level preprocessing for raw DAQ HDF5 files.
+
+Provides helpers to discover which chunks exist in a run (possibly split
+across multiple sequential files), reconstruct each chunk's absolute
+timestamp, clean/downsample a single channel's waveform via spike removal,
+convert it to an amplitude spectral density, and check whether the DAQ
+writer process is still alive.
+"""
 import h5py, os, psutil, re
 import numpy as np
 from scipy.ndimage import binary_dilation
 from datetime import datetime, timedelta
 
 
+# Cache of per-file chunk counts, keyed by file path. Only ever populated
+# for finalized (closed) files, since counting chunks in an actively-written
+# file would be unstable.
 _chunk_count_cache = {}
 
 
@@ -159,9 +171,13 @@ def chunk_timestamp(h5path, chunk_name, duration):
     Returns:
     - datetime: absolute start time of the chunk within the full run.
     """
+    # Run-level start time, parsed once from this file's name.
     start = parse_file_start_time(h5path)
+    # This chunk's position within its own file.
     local_idx = event_index(chunk_name)
 
+    # Add up chunk counts from every file that precedes h5path in the run,
+    # so local_idx can be converted into a run-wide chunk index.
     prior_chunks = 0
     for f in _sibling_files(h5path):
         if f == h5path:
@@ -220,6 +236,8 @@ def preprocess(tdata, data, target_len, sigma_thresh=5, radius=100, default_valu
     raw_data = np.asarray(data).copy()
     tdata = np.asarray(tdata)
 
+    # Robust (outlier-resistant) estimate of the noise floor and its spread,
+    # used instead of mean/std so a few large spikes don't skew the threshold.
     med = np.median(raw_data)
     mad = np.median(np.abs(raw_data - med))
     sigma_robust = 1.4826 * mad          # scales MAD to be a std estimate for Gaussian noise
@@ -326,6 +344,7 @@ def process_chunk(h5path, chunk_name, sampling_rate, channel_number, downsample_
         preprocessed_time, preprocessed_waveform = preprocess(time_data, waveform_data, target_len)
         bins, asd = fft(preprocessed_waveform, fft_fs)
 
+    # Absolute wall-clock start time of this chunk, for plotting/saving.
     ts = chunk_timestamp(h5path, chunk_name, duration)
 
     print(f"Processed {os.path.basename(h5path)}::{chunk_name} @ {ts.isoformat()}", flush=True)

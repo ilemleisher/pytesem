@@ -1,3 +1,12 @@
+"""
+Live noise-monitoring driver for a DAQ run.
+
+Polls a directory of HDF5 files being written by run_daq.py, incrementally
+preprocesses new data chunks as they become available, reduces a sliding
+window of chunks via PCA, and updates live diagnostic figures. Exits once
+the DAQ process has ended and one final pass over any remaining chunks has
+completed, then saves the last figure to disk.
+"""
 import os, time, glob, argparse
 import numpy as np
 from collections import deque
@@ -14,13 +23,20 @@ WINDOW_SIZE = 60
 
 
 def parse_args():
+    """
+    Define and parse command-line arguments controlling I/O paths, the DAQ
+    PID handshake, downsampling/sampling-rate settings, and the analysis
+    thresholds/bin limits used by the live figures.
+    """
     parser = argparse.ArgumentParser(description="Preprocess raw data files.")
     parser.add_argument('--data_dir', type=str, required=True, help='Path to the folder containing the .hdf5 files.')
     parser.add_argument('--output_dir', type=str, required=True, help='Path to the folder where output is saved.')
     parser.add_argument('--daq_pid', type=int, required=True, help='run_daq.py PID.')
     parser.add_argument('--downsample_factor', type=int, default=10, help='Downsample reduction factor.')
     parser.add_argument('--sampling_rate', type=float, default=1.25e6, help='Sampling rate of the raw data in Hz.')
+    parser.add_argument('--freq_cutoff', type=float, default=1000.0, help='Frequency (Hz) separating low/high bands.')
     parser.add_argument('--channel_number', type=int, default=0, help='Channel number to read from the raw data file (0-indexed).')
+    parser.add_argument('--max_bins', type=int, default=5, help='Maximum number of bins to display in the live figure.')
     parser.add_argument('--threshold_low', type=float, default=2.0, help='Lower threshold for bin selection.')
     parser.add_argument('--threshold_high', type=float, default=3.0, help='Upper threshold for bin selection.')
     return parser.parse_args()
@@ -35,8 +51,10 @@ def main():
     output_dir = args.output_dir
     daq_pid = args.daq_pid
     sampling_rate = args.sampling_rate
+    freq_cutoff = args.freq_cutoff
     channel_number = args.channel_number
     downsample_factor = args.downsample_factor
+    max_bins = args.max_bins
     threshold_low = args.threshold_low
     threshold_high = args.threshold_high
 
@@ -123,7 +141,8 @@ def main():
                         # -------------------                     
                         # Produce/update the live figure from the reduced data.
                         # Returns a matplotlib Figure we hold onto for final save.
-                        fig, fig2 = analyze(reduced_data, timestamp, threshold_low=threshold_low, threshold_high=threshold_high)
+                        fig, fig2 = analyze(reduced_data, timestamp, threshold_low=threshold_low, threshold_high=threshold_high,
+                                             freq_cutoff=freq_cutoff, max_bins=max_bins)
 
         # If the DAQ has exited, the scan we just completed already covered
         # every finalized chunk (nothing is "open" anymore), so we're done.

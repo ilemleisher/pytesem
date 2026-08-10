@@ -1,3 +1,11 @@
+"""
+Post-run analysis over the reduced-data files saved during a run.
+
+Loads every rd_*.npz file written by main.py, reconstructs a chronological
+time series of short-term and long-term PCA residuals, and reports every
+instance where a bin's residual crossed into the "red zone" (i.e. exceeded
+threshold + 2*band_width) for its frequency band.
+"""
 import os
 import glob
 import re
@@ -6,10 +14,12 @@ import argparse
 from datetime import datetime
 
 
-# Example script for a post-run analysis using the saved data files
-
-
 def parse_args():
+    """
+    Define and parse command-line arguments controlling the output
+    directory to scan and the thresholds/band settings used to define
+    the red-zone crossing criteria.
+    """
     parser = argparse.ArgumentParser(description="Post-run analysis of reduced data files.")
     parser.add_argument('--output_dir', type=str, required=True, help='Path to the folder where output is saved.')
     parser.add_argument('--threshold_low', type=float, default=2.0, help='Lower threshold for bin selection.')
@@ -56,6 +66,8 @@ def load_all_reduced_data(output_dir):
     data_list = []
     for path in paths:
         ts = _timestamp_from_filename(path)
+        # Materialize arrays into a plain dict and close the file
+        # immediately, rather than keeping many NpzFile handles open.
         with np.load(path) as npz:
             data_list.append({key: npz[key] for key in npz.files})
         timestamps.append(ts)
@@ -94,9 +106,11 @@ def find_red_zone_crossings(data_list, timestamps, bins, threshold_low,
       band ("low"/"high"), bin_index, freq_hz, residual. Sorted
       chronologically.
     """
+    # Split bins into low/high frequency bands, same convention as analysis.py.
     low_mask = bins < freq_cutoff
     high_mask = ~low_mask
 
+    # Red-zone thresholds sit two caution-band-widths above the base thresholds.
     red_low = threshold_low + 2 * band_width
     red_high = threshold_high + 2 * band_width
 
@@ -112,6 +126,8 @@ def find_red_zone_crossings(data_list, timestamps, bins, threshold_low,
 
     events = []
     for term_label, key in term_keys:
+        # Long-term residuals may be missing from early files; align
+        # timestamps to only the files that actually contain this key.
         aligned_ts, arr = _stack_with_timestamps(data_list, timestamps, key)
         if arr is None:
             print(f"No '{key}' data found (term={term_label}); skipping.")
@@ -123,6 +139,7 @@ def find_red_zone_crossings(data_list, timestamps, bins, threshold_low,
             # (n_windows, n_bins_in_band) boolean of crossings
             crossings = abs_arr[:, mask] > red_thresh
             t_idx, local_bin_idx = np.where(crossings)
+            # Map band-local bin indices back to global bin indices.
             global_bin_idx = np.where(mask)[0][local_bin_idx]
 
             for t, b in zip(t_idx, global_bin_idx):
@@ -135,11 +152,16 @@ def find_red_zone_crossings(data_list, timestamps, bins, threshold_low,
                     "residual": float(arr[t, b]),
                 })
 
+    # Present crossings in chronological order across all terms/bands.
     events.sort(key=lambda e: e["timestamp"])
     return events
 
 
 def main():
+    """
+    Load all reduced-data files for a run, scan them for red-zone
+    residual crossings, and print a chronological report.
+    """
 
     args = parse_args()
 
