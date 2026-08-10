@@ -109,7 +109,7 @@ def reduce_window(window, first_pca=None, first_scaler=None):
             f"need >= {MIN_TRAIN_ROWS}"
         )
 
-    print(f"Reducing window...")
+    print(f"Extracting features...")
 
     # Frequency axis is identical across chunks, so take it from the first.
     bins = window[0]["bins"]

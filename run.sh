@@ -11,12 +11,12 @@ DOWNSAMPLE_FACTOR=10
 SAMPLING_RATE=1.25e6
 FREQ_CUTOFF=1000.0
 CHANNEL_NUMBER=0
-MAX_BINS=20
+MAX_BINS=5
 THRESHOLD_LOW=2.0
 THRESHOLD_HIGH=3.0
 BAND_WIDTH=2.0
 
-MAIN_SCRIPT='run_naq.py'
+MAIN_SCRIPT='main.py'
 
 usage() {
     cat <<EOF
@@ -77,7 +77,7 @@ RAW_DIR="/home/mwilliams/data/$RUN/raw"
 # --- start DAQ ---
 python ../run_daq.py -c top_qet1, top_qet2, bot_qet1, bot_qet2 --acquire-cont --duration 20m --comment "Old pytesdaq. Chs 0,1,6,7 continuous transition with thin film, MXC <7 mK, still heater 8 mW" &
 DAQ_PID=$!
-echo "DAQ started (PID $DAQ_PID)"
+echo "pytesem: DAQ started (PID $DAQ_PID)"
 
 # --- wait for directory to be generated ---
 sleep 10
@@ -87,7 +87,7 @@ DATA_DIR=$(find "$RAW_DIR" -mindepth 1 -maxdepth 1 -type d \
     -name 'continuous_I*_D*_T*' | sort | tail -n 1)
 
 if [[ -z "$DATA_DIR" ]]; then
-    echo "Error: no matching directories found in $RAW_DIR" >&2
+    echo "pytesem Error: no matching directories found in $RAW_DIR" >&2
     exit 1
 fi
 
@@ -95,10 +95,10 @@ NAME=$(basename "$DATA_DIR")
 OUTPUT_DIR="${OUTPUT_DIR_OVERRIDE:-/home/mwilliams/081425pytesdaq/pytesdaq/bin/pytesem/em_output/$RUN/$NAME}"
 mkdir -p "$OUTPUT_DIR"
 
-echo "Using most recent data directory: $DATA_DIR"
-echo "Saving output to $OUTPUT_DIR"
+echo "pytesem: Using most recent data directory: $DATA_DIR"
+echo "pytesem: Saving output to $OUTPUT_DIR"
 
-# --- start run_naq.py in background, tell it the DAQ PID ---
+# --- start main.py in background, tell it the DAQ PID ---
 python "$MAIN_SCRIPT" \
     --data_dir "$DATA_DIR" \
     --output_dir "$OUTPUT_DIR" \
@@ -111,22 +111,23 @@ python "$MAIN_SCRIPT" \
     --threshold_low "$THRESHOLD_LOW" \
     --threshold_high "$THRESHOLD_HIGH" &
 NAQ_PID=$!
-echo "NAQ started (PID $NAQ_PID)"
+echo "pytesem: main started (PID $NAQ_PID)"
 
 # --- clean shutdown handling ---
 cleanup() {
-    echo "Shutting down..."
+    echo "pytesem: Shutting down..."
     kill "$DAQ_PID" 2>/dev/null || true
     wait "$NAQ_PID" 2>/dev/null || true
 }
 trap cleanup INT TERM
 
 wait "$DAQ_PID" || true
-echo "DAQ finished. Waiting for main to drain..."
+echo "pytesem: DAQ finished. Waiting for main to drain..."
 wait "$NAQ_PID" || true
-echo "Done."
+echo "pytesem: Done."
 
 # --- post-run analysis ---
+echo "pytesem: Running post run analysis..."
 python post_run_analysis.py \
     --output_dir "$OUTPUT_DIR" \
     --threshold_low "$THRESHOLD_LOW" \
