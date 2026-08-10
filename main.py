@@ -40,7 +40,8 @@ def parse_args():
     parser.add_argument('--threshold_low', type=float, default=2.0, help='Lower threshold for bin selection.')
     parser.add_argument('--threshold_high', type=float, default=3.0, help='Upper threshold for bin selection.')
     parser.add_argument('--band_width', type=float, default=2.0, help='Width of the frequency band for bin selection.')
-    parser.add_argument('--figures', type=str, nargs='+', choices=['worst_bins', 'psd'], default=['worst_bins', 'psd'], help='Which live figures to generate: worst_bins, psd, or both (default: both).')
+    parser.add_argument('--figures', type=str, nargs='+', choices=['worst_bins', 'psd', 'none'], default=['worst_bins', 'psd'], 
+                        help='Which live figures generate: worst_bins, psd, none, both (default: both).')
     return parser.parse_args()
 
 
@@ -63,6 +64,8 @@ def main():
 
     # Convert the CLI list into a dict of booleans matching analyze()'s
     # expected "figures" argument.
+    if 'none' in args.figures:
+        args.figures = []
     figures = {
         "worst_bins": "worst_bins" in args.figures,
         "psd": "psd" in args.figures,
