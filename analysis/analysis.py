@@ -173,7 +173,7 @@ def _plot_residual_panel(ax, x, hist_2d, top_bins, threshold, bins_axis,
     ax.set_ylabel(f"|Δlog₁₀(ASD)|\n({term_label})", fontsize=9)
 
 def live_figure_worst_bins(
-    reduced_data, timestamp, threshold_low, threshold_high,
+    reduced_data, timestamp, threshold_low, threshold_high, band_width=2.0,
     freq_cutoff=1000.0, max_bins=5,
     state=None
 ):
@@ -280,19 +280,19 @@ def live_figure_worst_bins(
     # Redraw all four panels with the latest history and bin selections.
     _plot_residual_panel(
         axes["short_low"], x, res_short, state["top_bins_short_low"],
-        threshold_low, bins_axis, "short-term", low_label, length=len(np.where(low_mask == True)[0]), active=True
+        threshold_low, bins_axis, "short-term", low_label, band_width=band_width, length=len(np.where(low_mask == True)[0]), active=True
     )
     _plot_residual_panel(
         axes["short_high"], x, res_short, state["top_bins_short_high"],
-        threshold_high, bins_axis, "short-term", high_label, length=len(np.where(high_mask == True)[0]), active=True
+        threshold_high, bins_axis, "short-term", high_label, band_width=band_width, length=len(np.where(high_mask == True)[0]), active=True
     )
     _plot_residual_panel(
         axes["long_low"], x, res_long, state["top_bins_long_low"],
-        threshold_low, bins_axis, "long-term", low_label, length=len(np.where(low_mask == True)[0]), active=has_long
+        threshold_low, bins_axis, "long-term", low_label, band_width=band_width, length=len(np.where(low_mask == True)[0]), active=has_long
     )
     _plot_residual_panel(
         axes["long_high"], x, res_long, state["top_bins_long_high"],
-        threshold_high, bins_axis, "long-term", high_label, length=len(np.where(high_mask == True)[0]), active=has_long
+        threshold_high, bins_axis, "long-term", high_label, band_width=band_width, length=len(np.where(high_mask == True)[0]), active=has_long
     )
 
     # ---- Shared x-axis formatting (bottom row) ----
@@ -412,24 +412,27 @@ def live_figure_psd(
     return state["psd_fig"]
 
 
-def analyze(reduced_data, timestamp, threshold_low, threshold_high,
+def analyze(reduced_data, timestamp, threshold_low, threshold_high, figures, band_width=2.0,
             freq_cutoff=1000.0, max_bins=5):
     """
-    Entry point called once per processed window: updates both live
-    figures (worst-bin residual histories and the PSD) using a shared,
-    function-level persistent state so bin selections stay consistent
-    between the two figures across repeated calls.
+    Entry point called once per processed window: updates whichever live
+    figures are requested (worst-bin residual histories and/or the PSD)
+    using a shared, function-level persistent state so bin selections
+    stay consistent between the two figures across repeated calls.
 
     Parameters:
     - reduced_data: dict from reduce_window for the current window.
     - timestamp: datetime for this window.
     - threshold_low: residual threshold for bins below freq_cutoff.
     - threshold_high: residual threshold for bins at/above freq_cutoff.
+    - figures: dict with boolean keys "worst_bins" and "psd" controlling
+      which live figures are generated/updated this call.
     - freq_cutoff: frequency (Hz) separating the low/high bands.
     - max_bins: max number of bins plotted per band, per term.
 
     Returns:
-    - (fig1, fig2): the residual-history figure and the PSD figure.
+    - (worst_bins, psd): the residual-history figure and the PSD figure,
+      or None for either one that wasn't requested in `figures`.
     """
     # Shared state object so both live figures use identical bin selection.
     # (Persistent across repeated calls to analyze)
@@ -456,12 +459,22 @@ def analyze(reduced_data, timestamp, threshold_low, threshold_high,
 
     shared_state = analyze._shared_state
 
-    # Update residual-history panels first, since it computes the bin
-    # selections that the PSD plot then reuses.
-    fig1 = live_figure_worst_bins(
-        reduced_data, timestamp, threshold_low, threshold_high,
-        freq_cutoff=freq_cutoff, max_bins=max_bins, state=shared_state
-    )
-    fig2 = live_figure_psd(reduced_data, timestamp, state=shared_state)
+    # Only compute/update the worst-bins panel if explicitly requested;
+    # note this also drives the bin selections used by the PSD panel below.
+    if figures["worst_bins"]:
+        worst_bins = live_figure_worst_bins(
+            reduced_data, timestamp, threshold_low, threshold_high, band_width=band_width,
+            freq_cutoff=freq_cutoff, max_bins=max_bins, state=shared_state
+        )
+    else:
+        worst_bins = None
 
-    return fig1, fig2
+    # Only compute/update the PSD panel if explicitly requested.
+    if figures["psd"]:
+        psd = live_figure_psd(
+            reduced_data, timestamp, state=shared_state
+        )
+    else:
+        psd = None
+
+    return worst_bins, psd

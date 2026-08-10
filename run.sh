@@ -15,6 +15,7 @@ MAX_BINS=5
 THRESHOLD_LOW=2.0
 THRESHOLD_HIGH=3.0
 BAND_WIDTH=2.0
+FIGURES="worst_bins psd"
 
 MAIN_SCRIPT='main.py'
 
@@ -33,6 +34,7 @@ Options:
   --threshold-low VAL         Lower threshold for bin selection (default: $THRESHOLD_LOW)
   --threshold-high VAL        Upper threshold for bin selection (default: $THRESHOLD_HIGH)
   --band-width VAL            Dex-width of caution band above threshold (default: $BAND_WIDTH)
+  --figures LIST              Which live figures to generate: worst_bins, psd, or both (default: both)
   -h, --help                  Show this help message
 
 Example:
@@ -63,6 +65,8 @@ while [[ $# -gt 0 ]]; do
             THRESHOLD_HIGH="$2"; shift 2 ;;
         --band-width)
             BAND_WIDTH="$2"; shift 2 ;;
+        --figures)
+            FIGURES="$2"; shift 2 ;;
         -h|--help)
             usage; exit 0 ;;
         *)
@@ -109,7 +113,9 @@ python "$MAIN_SCRIPT" \
     --channel_number "$CHANNEL_NUMBER" \
     --max_bins "$MAX_BINS" \
     --threshold_low "$THRESHOLD_LOW" \
-    --threshold_high "$THRESHOLD_HIGH" &
+    --threshold_high "$THRESHOLD_HIGH" \
+    --band_width "$BAND_WIDTH" \
+    --figures $FIGURES &
 NAQ_PID=$!
 echo "pytesem: main started (PID $NAQ_PID)"
 

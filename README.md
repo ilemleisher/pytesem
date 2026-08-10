@@ -38,6 +38,7 @@ bash run.sh [options]
 | `--threshold-low VAL` | `2.0` | Threshold used for low frequency bin selection; passed to both `main.py` and `post_run_analysis.py`. |
 | `--threshold-high VAL` | `3.0` | Threshold used for high frequency bin selection; passed to both `main.py` and `post_run_analysis.py`. |
 | `--band-width VAL` | `2.0` | Band width in live figures (the red zone begins at `threshold + 2 * band_width`). |
+| `--figures LIST` | `worst_bins psd` | Which live figures to generate: worst_bins, psd, or both; passed to `main.py` |
 
 In general, most of the defaults for these parameters are fine and do not need to be configured each run (with the exception of --run). So usage is simple:
 

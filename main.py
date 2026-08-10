@@ -39,6 +39,8 @@ def parse_args():
     parser.add_argument('--max_bins', type=int, default=5, help='Maximum number of bins to display in the live figure.')
     parser.add_argument('--threshold_low', type=float, default=2.0, help='Lower threshold for bin selection.')
     parser.add_argument('--threshold_high', type=float, default=3.0, help='Upper threshold for bin selection.')
+    parser.add_argument('--band_width', type=float, default=2.0, help='Width of the frequency band for bin selection.')
+    parser.add_argument('--figures', type=str, nargs='+', choices=['worst_bins', 'psd'], default=['worst_bins', 'psd'], help='Which live figures to generate: worst_bins, psd, or both (default: both).')
     return parser.parse_args()
 
 
@@ -57,6 +59,14 @@ def main():
     max_bins = args.max_bins
     threshold_low = args.threshold_low
     threshold_high = args.threshold_high
+    band_width = args.band_width
+
+    # Convert the CLI list into a dict of booleans matching analyze()'s
+    # expected "figures" argument.
+    figures = {
+        "worst_bins": "worst_bins" in args.figures,
+        "psd": "psd" in args.figures,
+    }
 
     # Sliding window of the most recent WINDOW_SIZE processed chunks.
     # deque(maxlen=...) auto-evicts the oldest entry once full, so the
@@ -69,7 +79,7 @@ def main():
 
     # Handle to the live matplotlib figure; stays None until the first analyze() call.
     # Used at the end to decide whether there's anything to save.
-    fig = None
+    fig = fig2 = None
 
     # Initialize first fit PCA and scaler for use with long term analysis
     first_pca = None
@@ -141,8 +151,8 @@ def main():
                         # -------------------                     
                         # Produce/update the live figure from the reduced data.
                         # Returns a matplotlib Figure we hold onto for final save.
-                        fig, fig2 = analyze(reduced_data, timestamp, threshold_low=threshold_low, threshold_high=threshold_high,
-                                             freq_cutoff=freq_cutoff, max_bins=max_bins)
+                        fig, fig2 = analyze(reduced_data, timestamp, threshold_low=threshold_low, threshold_high=threshold_high, figures=figures,
+                                             freq_cutoff=freq_cutoff, max_bins=max_bins, band_width=band_width)
 
         # If the DAQ has exited, the scan we just completed already covered
         # every finalized chunk (nothing is "open" anymore), so we're done.
@@ -155,16 +165,19 @@ def main():
     # ------------------------------------------------------------------
     # FINALIZATION
     # ------------------------------------------------------------------
+    # Collect whichever final figures were actually generated, since the
+    # user may have disabled one or both via --figures.
+    figs_to_save = []
     if fig is not None:
+        figs_to_save.append((fig, "live_bins_final.png"))
+    if fig2 is not None:
+        figs_to_save.append((fig2, "live_psd_final.png"))
+
+    if figs_to_save:
         plt.ioff()
-
-        figs_to_save = [
-            (fig, "live_bins_final.png")
-        ]
-
-        for fig, filename in figs_to_save:
+        for f, filename in figs_to_save:
             path = os.path.join(output_dir, filename)
-            fig.savefig(path, dpi=150)
+            f.savefig(path, dpi=150)
             print(f"Saved final plot to {path}", flush=True)
     else:
         print("No full window was ever reached; no plot to save.", flush=True)
