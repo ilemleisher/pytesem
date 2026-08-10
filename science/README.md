@@ -1,0 +1,2 @@
+# Science codes
+This folder contains various R&D codes. They are not necessary for running the system and can be deleted, although they may be useful for testing different parts of the system if desired.
