@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Kill the entire process group (this script and every child/background
+# process it spawned, including run_daq.py, main.py, and
+# post_run_analysis.py) the moment Ctrl+C or a TERM signal is received.
+cleanup() {
+    trap '' INT TERM   # ignore any further INT/TERM while we're shutting down
+    log "Interrupted — shutting down all processes..."
+    kill -- -$$ 2>/dev/null
+    exit 1
+}
+trap cleanup INT TERM
+
+# Simple wrapper so every echo from this script is consistently tagged.
+log() {
+    echo "pytesem: $*"
+}
+
 cd /home/mwilliams/081425pytesdaq/pytesdaq/bin/pytesem
 
 # --- defaults ---
@@ -34,11 +50,11 @@ Options:
   --threshold-low VAL         Lower threshold for bin selection (default: $THRESHOLD_LOW)
   --threshold-high VAL        Upper threshold for bin selection (default: $THRESHOLD_HIGH)
   --band-width VAL            Dex-width of caution band above threshold (default: $BAND_WIDTH)
-  --figures LIST              Which live figures to generate: worst_bins, psd, or both (default: both)
+  --figures LIST              Space-separated live figures to generate: worst_bins, psd, none, or both (default: "$FIGURES")
   -h, --help                  Show this help message
 
 Example:
-  $0 --run run46 --threshold-low 1.5 --threshold-high 2.5 --freq-cutoff 500
+  $0 --run run46 --threshold-low 1.5 --threshold-high 2.5 --freq-cutoff 500 --figures psd
 EOF
 }
 
@@ -81,7 +97,7 @@ RAW_DIR="/home/mwilliams/data/$RUN/raw"
 # --- start DAQ ---
 python ../run_daq.py -c top_qet1, top_qet2, bot_qet1, bot_qet2 --acquire-cont --duration 20m --comment "Old pytesdaq. Chs 0,1,6,7 continuous transition with thin film, MXC <7 mK, still heater 8 mW" &
 DAQ_PID=$!
-echo "pytesem: DAQ started (PID $DAQ_PID)"
+log "DAQ started (PID $DAQ_PID)"
 
 # --- wait for directory to be generated ---
 sleep 10
@@ -91,7 +107,7 @@ DATA_DIR=$(find "$RAW_DIR" -mindepth 1 -maxdepth 1 -type d \
     -name 'continuous_I*_D*_T*' | sort | tail -n 1)
 
 if [[ -z "$DATA_DIR" ]]; then
-    echo "pytesem Error: no matching directories found in $RAW_DIR" >&2
+    log "Error: no matching directories found in $RAW_DIR" >&2
     exit 1
 fi
 
@@ -99,11 +115,11 @@ NAME=$(basename "$DATA_DIR")
 OUTPUT_DIR="${OUTPUT_DIR_OVERRIDE:-/home/mwilliams/081425pytesdaq/pytesdaq/bin/pytesem/em_output/$RUN/$NAME}"
 mkdir -p "$OUTPUT_DIR"
 
-echo "pytesem: Using most recent data directory: $DATA_DIR"
-echo "pytesem: Saving output to $OUTPUT_DIR"
+log "Using most recent data directory: $DATA_DIR"
+log "Saving output to $OUTPUT_DIR"
 
-# --- start main.py in background, tell it the DAQ PID ---
-python "$MAIN_SCRIPT" \
+# --- start main.py in background ---
+python -u "$MAIN_SCRIPT" \
     --data_dir "$DATA_DIR" \
     --output_dir "$OUTPUT_DIR" \
     --daq_pid "$DAQ_PID" \
@@ -114,29 +130,21 @@ python "$MAIN_SCRIPT" \
     --max_bins "$MAX_BINS" \
     --threshold_low "$THRESHOLD_LOW" \
     --threshold_high "$THRESHOLD_HIGH" \
-    --band_width "$BAND_WIDTH" \
-    --figures $FIGURES &
+    --figures $FIGURES \
+    > >(sed "s/^/pytesem: /") 2>&1 &
 NAQ_PID=$!
-echo "pytesem: main started (PID $NAQ_PID)"
-
-# --- clean shutdown handling ---
-cleanup() {
-    echo "pytesem: Shutting down..."
-    kill "$DAQ_PID" 2>/dev/null || true
-    wait "$NAQ_PID" 2>/dev/null || true
-}
-trap cleanup INT TERM
+log "NAQ started (PID $NAQ_PID)"
 
 wait "$DAQ_PID" || true
-echo "pytesem: DAQ finished. Waiting for main to drain..."
+log "DAQ finished. Waiting for main to drain..."
 wait "$NAQ_PID" || true
-echo "pytesem: Done."
+log "Done."
 
 # --- post-run analysis ---
-echo "pytesem: Running post run analysis..."
-python post_run_analysis.py \
+python -u post_run_analysis.py \
     --output_dir "$OUTPUT_DIR" \
     --threshold_low "$THRESHOLD_LOW" \
     --threshold_high "$THRESHOLD_HIGH" \
     --band_width "$BAND_WIDTH" \
-    --freq_cutoff "$FREQ_CUTOFF" &
+    --freq_cutoff "$FREQ_CUTOFF" \
+    2>&1 | sed "s/^/pytesem: /"

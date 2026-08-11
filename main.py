@@ -16,7 +16,7 @@ from analysis.analysis import analyze
 import matplotlib.pyplot as plt
 
 # How long to wait between filesystem scans when the DAQ is still running.
-CHUNK_POLL_SEC = 2
+CHUNK_POLL_SEC = 1
 # Number of consecutive chunks held in the sliding window. Analysis only
 # runs once this many chunks have accumulated, and thereafter on a rolling basis.
 WINDOW_SIZE = 60
