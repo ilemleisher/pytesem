@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 CHUNK_POLL_SEC = 1
 # Number of consecutive chunks held in the sliding window. Analysis only
 # runs once this many chunks have accumulated, and thereafter on a rolling basis.
-WINDOW_SIZE = 60
+WINDOW_SIZE = 30
 
 
 def parse_args():
