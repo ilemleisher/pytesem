@@ -34,7 +34,7 @@ bash run.sh [options]
 | `--sampling-rate HZ` | `1.25e6` | Sampling rate of the raw data (Hz), passed to `main.py`. |
 | `--freq-cutoff HZ` | `1000.0` | Frequency (Hz) separating low/high bands; passed to both `main.py` and `post_run_analysis.py`. |
 | `--channel-number N` | `0` | Channel number (0-indexed) in the raw data files, passed to `main.py`. |
-| `--max-bins N` | `20` | Maximum number of bins shown in each `main.py` live figure panel. |
+| `--max-bins N` | `5` | Maximum number of bins shown in each `main.py` live figure panel. |
 | `--threshold-low VAL` | `2.0` | Threshold used for low frequency bin selection; passed to both `main.py` and `post_run_analysis.py`. |
 | `--threshold-high VAL` | `3.0` | Threshold used for high frequency bin selection; passed to both `main.py` and `post_run_analysis.py`. |
 | `--band-width VAL` | `2.0` | Band width in live figures (the red zone begins at `threshold + 2 * band_width`). |
